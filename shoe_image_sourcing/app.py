@@ -53,6 +53,11 @@ async def create_crawl_run(
         raise HTTPException(status_code=400, detail="Only JPEG, PNG, and WebP images are supported")
 
     facts = ProductFacts(brand=brand, model=model, sku=sku, color=color, keywords=keywords)
+    if not any([facts.model, facts.sku, facts.keywords]):
+        raise HTTPException(
+            status_code=400,
+            detail="请至少填写型号、货号或补充关键词之一；只填品牌会搜到大量无关图片。",
+        )
     selected_platforms = [item.strip() for item in platforms.split(",") if item.strip()]
     queries = generate_queries(facts)
     manifest, run_dir = create_run(facts, queries, selected_platforms, OUTPUT_ROOT)

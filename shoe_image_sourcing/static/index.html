@@ -10,14 +10,14 @@
   <main class="shell">
     <aside class="panel">
       <h1>鞋类图源采集台</h1>
-      <p class="hint">默认快速模式只跑轻量平台。Ozon、WB、StockX 等深度平台更慢，按需勾选。</p>
+      <p class="hint">默认快速模式只跑轻量平台。请填写型号、货号或关键词，否则只搜品牌会出现大量无关图片。</p>
       <form id="run-form">
         <label>产品主图 <input name="image" type="file" accept="image/*" required /></label>
-        <label>品牌 <input name="brand" placeholder="Nike" /></label>
-        <label>型号 <input name="model" placeholder="Air Monarch IV" /></label>
-        <label>货号 <input name="sku" placeholder="415445-102" /></label>
-        <label>颜色 <input name="color" placeholder="White Navy" /></label>
-        <label>补充关键词 <input name="keywords" placeholder="dad shoes" /></label>
+        <label>品牌 <input name="brand" placeholder="例如 Nike" /></label>
+        <label>型号 <input name="model" placeholder="必填之一：例如 Air Monarch IV" /></label>
+        <label>货号 <input name="sku" placeholder="必填之一：例如 415445-102" /></label>
+        <label>颜色 <input name="color" placeholder="例如 White Navy" /></label>
+        <label>补充关键词 <input name="keywords" placeholder="必填之一：例如 dad shoes, white navy" /></label>
         <section>
           <h2>快速平台</h2>
           <div id="fast-platforms" class="platforms"></div>

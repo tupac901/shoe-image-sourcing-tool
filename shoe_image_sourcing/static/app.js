@@ -90,6 +90,13 @@ async function pollRun(runId) {
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const body = new FormData(form);
+  if (!body.get("model")?.trim() && !body.get("sku")?.trim() && !body.get("keywords")?.trim()) {
+    runTitle.textContent = "信息不够";
+    summary.textContent = "请至少填写型号、货号或补充关键词之一；只填 Nike 会搜到很多无关图片。";
+    logs.textContent = "";
+    gallery.innerHTML = "";
+    return;
+  }
   body.set("platforms", selectedPlatforms());
   runTitle.textContent = "正在上传并创建任务...";
   summary.textContent = "Render 免费版冷启动时，首次请求可能需要几十秒。";

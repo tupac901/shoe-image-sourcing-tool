@@ -23,7 +23,8 @@ def test_product_facts_normalizes_empty_fields():
 def test_generate_queries_prioritizes_sku_and_shoe_terms():
     facts = ProductFacts(brand="Nike", model="Air Monarch IV", sku="415445-102", color="White Navy")
     queries = generate_queries(facts)
-    assert queries[0] == "Nike Air Monarch IV 415445-102 White Navy shoes"
+    assert queries[0] == "415445-102 Nike Air Monarch IV White Navy product images"
+    assert "Nike Air Monarch IV 415445-102 White Navy shoes" in queries
     assert "Nike Air Monarch IV 415445-102 кроссовки" in queries
     assert "415445-102 Nike shoe product photos" in queries
 

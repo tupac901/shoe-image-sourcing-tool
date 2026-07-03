@@ -44,3 +44,17 @@ def test_platforms_endpoint_returns_defaults():
     assert response.status_code == 200
     data = response.json()
     assert any(platform["name"] == "ozon" for platform in data["default"])
+
+
+def test_create_run_rejects_brand_only_search(tmp_path):
+    image_path = tmp_path / "shoe.jpg"
+    image_path.write_bytes(b"not-a-real-image-but-upload-validation-only-checks-content-type")
+    client = TestClient(app)
+    with image_path.open("rb") as handle:
+        response = client.post(
+            "/api/runs",
+            data={"brand": "Nike"},
+            files={"image": ("shoe.jpg", handle, "image/jpeg")},
+        )
+    assert response.status_code == 400
+    assert "型号" in response.json()["detail"]
