@@ -21,6 +21,7 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
     manifest.status = "running"
     manifest.logs.append("crawl started in fast background mode")
     save_manifest(manifest, run_dir)
+    hashes: dict[str, str] = {}
 
     for platform in manifest.platforms:
         platform_total = 0
@@ -37,11 +38,12 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
                 manifest.candidates.extend(candidates)
                 platform_total += len(candidates)
                 manifest.logs.append(f"{platform}: collected {len(candidates)} entries for {query}")
+                await download_and_process_candidates(manifest, run_dir, candidates, hashes)
             except Exception as exc:
                 manifest.logs.append(f"{platform}: failed for {query}: {exc}")
         manifest.logs.append(f"{platform}: search step done, {platform_total} entries")
         save_manifest(manifest, run_dir)
-    await download_and_process_candidates(manifest, run_dir)
+    group_duplicates(manifest.candidates, hashes)
     manifest.status = "complete"
     manifest.logs.append("run complete")
     save_manifest(manifest, run_dir)
@@ -85,14 +87,20 @@ async def collect_bing_downloader_candidates(query: str, run_dir: Path, limit: i
     return candidates
 
 
-async def download_and_process_candidates(manifest: RunManifest, run_dir: Path) -> None:
-    hashes: dict[str, str] = {}
+async def download_and_process_candidates(
+    manifest: RunManifest,
+    run_dir: Path,
+    candidates_to_process: list[ImageCandidate] | None = None,
+    hashes: dict[str, str] | None = None,
+) -> None:
+    hashes = hashes if hashes is not None else {}
     async with httpx.AsyncClient(
         follow_redirects=True,
         timeout=IMAGE_DOWNLOAD_TIMEOUT_SECONDS,
         headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0 Safari/537.36"},
     ) as client:
-        candidates = [candidate for candidate in manifest.candidates if candidate.image_url or candidate.local_original_path]
+        source_candidates = candidates_to_process if candidates_to_process is not None else manifest.candidates
+        candidates = [candidate for candidate in source_candidates if candidate.image_url or candidate.local_original_path]
         semaphore = anyio.Semaphore(4)
 
         async def process_one(candidate):
@@ -102,7 +110,8 @@ async def download_and_process_candidates(manifest: RunManifest, run_dir: Path) 
         async with anyio.create_task_group() as task_group:
             for candidate in candidates:
                 task_group.start_soon(process_one, candidate)
-    group_duplicates(manifest.candidates, hashes)
+    if candidates_to_process is None:
+        group_duplicates(manifest.candidates, hashes)
     save_manifest(manifest, run_dir)
 
 

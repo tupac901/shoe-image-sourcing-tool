@@ -106,14 +106,14 @@ function selectedPlatforms() {
 }
 
 function renderSummary(run) {
-  const withImages = run.candidates.filter((candidate) => candidate.local_thumbnail_path || candidate.image_url).length;
+  const withImages = run.candidates.filter((candidate) => candidate.local_processed_path || candidate.local_thumbnail_path || candidate.local_original_path || candidate.image_url).length;
   const processed = run.candidates.filter((candidate) => candidate.local_processed_path).length;
   const searchOnly = run.candidates.filter((candidate) => candidate.status_labels.includes("search_page_only")).length;
   summary.textContent = `图片 ${withImages} 张，已转 3:4 ${processed} 张，搜索页线索 ${searchOnly} 条`;
 }
 
 function imageMarkup(candidate) {
-  const imagePath = candidate.local_processed_path || candidate.local_thumbnail_path;
+  const imagePath = candidate.local_processed_path || candidate.local_thumbnail_path || candidate.local_original_path;
   if (imagePath) {
     return `<a class="image-link" href="/${imagePath}" target="_blank" rel="noreferrer"><img src="/${imagePath}" alt=""></a>`;
   }
