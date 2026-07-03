@@ -11,9 +11,10 @@ IMAGE_DOWNLOAD_TIMEOUT_SECONDS = 6
 SUPPORTED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 DEFAULT_PLATFORMS = [
+    PlatformConfig(name="bing_images", label="Bing Images"),
     PlatformConfig(name="yandex_images", label="Yandex Images"),
     PlatformConfig(name="ebay", label="eBay"),
-    PlatformConfig(name="official", label="Brand official site/search"),
+    PlatformConfig(name="official", label="Brand official site/search", enabled_by_default=False, speed_tier="deep"),
     PlatformConfig(name="wildberries", label="WB / Wildberries", enabled_by_default=False, speed_tier="deep"),
     PlatformConfig(name="ozon", label="Ozon", enabled_by_default=False, competitor_reference_only=True, speed_tier="deep"),
     PlatformConfig(name="lamoda", label="Lamoda", enabled_by_default=False, speed_tier="deep"),

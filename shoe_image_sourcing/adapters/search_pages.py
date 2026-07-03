@@ -14,6 +14,7 @@ from .base import PlatformAdapter
 
 
 SEARCH_PATTERNS = {
+    "bing_images": "https://www.bing.com/images/search?q={query}",
     "wildberries": "https://www.wildberries.ru/catalog/0/search.aspx?search={query}",
     "yandex_images": "https://yandex.com/images/search?text={query}",
     "ozon": "https://www.ozon.ru/search/?text={query}",
@@ -91,19 +92,17 @@ def extract_image_urls(html: str, base_url: str, limit: int = 12) -> list[str]:
     urls: list[str] = []
     seen = set()
     patterns = [
+        r'murl&quot;:&quot;([^&]+)&quot;',
+        r'"murl"\s*:\s*"([^"]+)"',
+        r'"imgurl"\s*:\s*"([^"]+)"',
+        r'imgurl=([^&"\']+)',
         r'<img[^>]+(?:src|data-src|data-original|data-lazy)=["\']([^"\']+)["\']',
         r'"(https?://[^"]+\.(?:jpg|jpeg|png|webp)(?:\?[^"]*)?)"',
     ]
     for pattern in patterns:
         for raw_url in re.findall(pattern, html, flags=re.IGNORECASE):
-            url = unescape(raw_url).strip()
-            if not url or url.startswith("data:"):
-                continue
-            if url.startswith("//"):
-                url = "https:" + url
-            url = urljoin(base_url, url)
-            lowered = url.lower()
-            if not any(ext in lowered for ext in [".jpg", ".jpeg", ".png", ".webp"]):
+            url = normalize_image_url(raw_url, base_url)
+            if not url or not is_likely_product_image(url):
                 continue
             if url in seen:
                 continue
@@ -112,3 +111,33 @@ def extract_image_urls(html: str, base_url: str, limit: int = 12) -> list[str]:
             if len(urls) >= limit:
                 return urls
     return urls
+
+
+def normalize_image_url(raw_url: str, base_url: str) -> str:
+    url = unescape(raw_url).strip().strip("\\")
+    if not url or url.startswith("data:"):
+        return ""
+    url = url.replace("\\/", "/").replace("\\u0026", "&")
+    if url.startswith("//"):
+        url = "https:" + url
+    return urljoin(base_url, url)
+
+
+def is_likely_product_image(url: str) -> bool:
+    lowered = url.lower()
+    if not lowered.startswith(("http://", "https://")):
+        return False
+    if not any(ext in lowered for ext in [".jpg", ".jpeg", ".png", ".webp"]):
+        return False
+    blocked_fragments = [
+        "favicon",
+        "logo",
+        "sprite",
+        "icon",
+        "blank",
+        "pixel",
+        "yastatic.net",
+        "google.com/images/branding",
+        "gstatic.com",
+    ]
+    return not any(fragment in lowered for fragment in blocked_fragments)
