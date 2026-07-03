@@ -10,6 +10,7 @@
   <main class="shell">
     <aside class="panel">
       <h1>鞋类图源采集台</h1>
+      <p class="hint">默认快速模式只跑轻量平台。Ozon、WB、StockX 等深度平台更慢，按需勾选。</p>
       <form id="run-form">
         <label>产品主图 <input name="image" type="file" accept="image/*" required /></label>
         <label>品牌 <input name="brand" placeholder="Nike" /></label>
@@ -18,15 +19,20 @@
         <label>颜色 <input name="color" placeholder="White Navy" /></label>
         <label>补充关键词 <input name="keywords" placeholder="dad shoes" /></label>
         <section>
-          <h2>平台</h2>
-          <div id="platforms" class="platforms"></div>
+          <h2>快速平台</h2>
+          <div id="fast-platforms" class="platforms"></div>
         </section>
-        <button type="submit">开始采集</button>
+        <section>
+          <h2>深度平台</h2>
+          <div id="deep-platforms" class="platforms"></div>
+        </section>
+        <button id="submit-button" type="submit">开始采集</button>
       </form>
     </aside>
     <section class="workspace">
       <div class="status">
         <strong id="run-title">等待开始</strong>
+        <div id="summary" class="summary"></div>
         <pre id="logs"></pre>
       </div>
       <div id="gallery" class="gallery"></div>

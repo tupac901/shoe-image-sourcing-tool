@@ -11,6 +11,7 @@ class PlatformConfig(BaseModel):
     label: str
     enabled_by_default: bool = True
     competitor_reference_only: bool = False
+    speed_tier: Literal["fast", "deep"] = "fast"
 
 
 class ProductFacts(BaseModel):

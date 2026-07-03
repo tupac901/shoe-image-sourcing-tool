@@ -40,11 +40,11 @@ class SearchPageAdapter(PlatformAdapter):
     def __init__(self, platform: str):
         self.platform = platform
 
-    async def search(self, query: str, limit: int = 12) -> list[ImageCandidate]:
+    async def search(self, query: str, limit: int = 12, timeout: float = 6) -> list[ImageCandidate]:
         search_url = build_search_url(self.platform, query)
         try:
-            image_urls = await fetch_image_urls(search_url, limit=limit)
-        except Exception:
+            image_urls = await fetch_image_urls(search_url, limit=limit, timeout=timeout)
+        except Exception as exc:
             image_urls = []
         if not image_urls:
             candidate_id = sha1(f"{self.platform}:{query}".encode("utf-8")).hexdigest()[:16]
@@ -55,7 +55,7 @@ class SearchPageAdapter(PlatformAdapter):
                     source_page_url=search_url,
                     image_url="",
                     title=f"Search results for {query}",
-                    status_labels=["search_page_only"],
+                    status_labels=["search_page_only", "fetch_skipped_or_blocked"],
                 )
             ]
 
@@ -74,14 +74,14 @@ class SearchPageAdapter(PlatformAdapter):
         return candidates
 
 
-async def fetch_image_urls(page_url: str, limit: int = 12) -> list[str]:
+async def fetch_image_urls(page_url: str, limit: int = 12, timeout: float = 6) -> list[str]:
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
         )
     }
-    async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=12) as client:
+    async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=timeout) as client:
         response = await client.get(page_url)
         response.raise_for_status()
     return extract_image_urls(response.text, str(response.url), limit=limit)

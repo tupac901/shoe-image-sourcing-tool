@@ -6,18 +6,20 @@ from .models import PlatformConfig
 OUTPUT_ROOT = Path("outputs/shoe_image_sourcing/runs")
 MAX_UPLOAD_MB = 8
 MAX_IMAGES_PER_RUN = 80
+FAST_PLATFORM_TIMEOUT_SECONDS = 6
+IMAGE_DOWNLOAD_TIMEOUT_SECONDS = 6
 SUPPORTED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 DEFAULT_PLATFORMS = [
-    PlatformConfig(name="wildberries", label="WB / Wildberries"),
     PlatformConfig(name="yandex_images", label="Yandex Images"),
-    PlatformConfig(name="ozon", label="Ozon", competitor_reference_only=True),
     PlatformConfig(name="ebay", label="eBay"),
     PlatformConfig(name="official", label="Brand official site/search"),
-    PlatformConfig(name="lamoda", label="Lamoda"),
-    PlatformConfig(name="avito", label="Avito"),
-    PlatformConfig(name="stockx", label="StockX"),
-    PlatformConfig(name="goat", label="GOAT"),
+    PlatformConfig(name="wildberries", label="WB / Wildberries", enabled_by_default=False, speed_tier="deep"),
+    PlatformConfig(name="ozon", label="Ozon", enabled_by_default=False, competitor_reference_only=True, speed_tier="deep"),
+    PlatformConfig(name="lamoda", label="Lamoda", enabled_by_default=False, speed_tier="deep"),
+    PlatformConfig(name="avito", label="Avito", enabled_by_default=False, speed_tier="deep"),
+    PlatformConfig(name="stockx", label="StockX", enabled_by_default=False, speed_tier="deep"),
+    PlatformConfig(name="goat", label="GOAT", enabled_by_default=False, speed_tier="deep"),
 ]
 
 OPTIONAL_PLATFORMS = [
