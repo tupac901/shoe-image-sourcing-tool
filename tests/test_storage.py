@@ -35,8 +35,8 @@ async def test_collect_candidates_marks_ozon_reference(tmp_path):
     manifest, run_dir = create_run(ProductFacts(brand="Nike"), ["Nike shoes"], ["ozon"], tmp_path)
     result = await collect_candidates(manifest, run_dir)
     assert result.status == "complete"
-    assert result.candidates
-    assert "competitor_reference_only" in result.candidates[0].status_labels
+    assert any("ozon: search step done" in log for log in result.logs)
+    assert all("search_page_only" not in candidate.status_labels for candidate in result.candidates)
 
 
 @pytest.mark.anyio
@@ -117,3 +117,20 @@ def test_bing_candidate_must_match_sku_or_model_text(tmp_path):
     )
     assert is_textually_relevant(good, manifest)
     assert not is_textually_relevant(bad, manifest)
+
+
+def test_generic_search_candidate_does_not_gain_text_score(tmp_path):
+    manifest, _ = create_run(
+        ProductFacts(brand="Nike", model="Air Monarch IV", sku="416355-102"),
+        ["Nike shoe"],
+        ["amazon"],
+        output_root=tmp_path,
+    )
+    candidate = ImageCandidate(
+        id="ad",
+        platform="amazon",
+        source_page_url="https://www.amazon.com/s?k=416355-102+Nike+Air+Monarch+IV",
+        image_url="https://example.com/prime-video-ad.jpg",
+        title="amazon image for 416355-102 Nike Air Monarch IV product images",
+    )
+    assert not is_textually_relevant(candidate, manifest)

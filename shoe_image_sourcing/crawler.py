@@ -7,11 +7,11 @@ import httpx
 from PIL import Image
 
 from .adapters.search_pages import SearchPageAdapter
-from .config import FAST_PLATFORM_TIMEOUT_SECONDS, IMAGE_DOWNLOAD_TIMEOUT_SECONDS
+from .config import FAST_PLATFORM_TIMEOUT_SECONDS, IMAGE_DOWNLOAD_TIMEOUT_SECONDS, MAX_IMAGES_PER_RUN
 from .dedupe import group_duplicates
 from .image_processing import compute_phash, make_thumbnail, process_to_3x4
 from .models import ImageCandidate, RunManifest
-from .relevance import find_reference_image, is_visually_related
+from .relevance import find_reference_image, visual_similarity_score
 from .storage import save_manifest
 
 
@@ -21,19 +21,37 @@ def _model_tokens(model: str | None) -> list[str]:
     return [token.lower() for token in model.replace("-", " ").split() if len(token) >= 3]
 
 
-def is_textually_relevant(candidate: ImageCandidate, manifest: RunManifest) -> bool:
+def text_relevance_score(candidate: ImageCandidate, manifest: RunManifest) -> int:
     facts = manifest.facts
-    text = " ".join(
-        item for item in [candidate.title, candidate.source_page_url, candidate.image_url] if item
-    ).lower()
+    title = candidate.title or ""
+    source_page_url = candidate.source_page_url or ""
+    generic_title = title.lower().startswith(f"{candidate.platform} image for ")
+    search_page_source = any(
+        marker in source_page_url.lower()
+        for marker in ["/images/search", "/search?", "/search/", "catalogsearch", "wholesale?searchtext", "/s?k="]
+    )
+    trusted_parts = [candidate.image_url or ""]
+    if not generic_title:
+        trusted_parts.append(title)
+    if not search_page_source:
+        trusted_parts.append(source_page_url)
+    text = " ".join(item for item in trusted_parts if item).lower()
+    score = 0
     if facts.sku and facts.sku.lower() in text:
-        return True
+        score += 8
     tokens = _model_tokens(facts.model)
-    if tokens and all(token in text for token in tokens[:3]):
-        return True
-    if facts.brand and facts.model and facts.brand.lower() in text and any(token in text for token in tokens):
-        return True
-    return False
+    matched_tokens = sum(1 for token in tokens if token in text)
+    if tokens and matched_tokens == len(tokens):
+        score += 6
+    elif matched_tokens:
+        score += min(matched_tokens * 2, 4)
+    if facts.brand and facts.brand.lower() in text:
+        score += 2
+    return score
+
+
+def is_textually_relevant(candidate: ImageCandidate, manifest: RunManifest) -> bool:
+    return text_relevance_score(candidate, manifest) >= 4
 
 
 async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_platform: int = 6) -> RunManifest:
@@ -43,29 +61,23 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
     hashes: dict[str, str] = {}
     reference_path = find_reference_image(run_dir)
 
-    target_processed_per_platform = min(4, limit_per_platform)
-    max_queries_per_platform = min(5, len(manifest.queries))
+    max_queries_per_platform = min(8, len(manifest.queries))
 
     for platform in manifest.platforms:
+        target_processed_per_platform = 12 if platform == "bing_images" else min(4, limit_per_platform)
         platform_total = 0
         platform_processed = 0
         for query in manifest.queries[:max_queries_per_platform]:
             try:
                 adapter = SearchPageAdapter(platform)
-                candidates = await adapter.search(query, limit=limit_per_platform, timeout=FAST_PLATFORM_TIMEOUT_SECONDS)
+                search_limit = 18 if platform == "bing_images" else limit_per_platform
+                candidates = await adapter.search(query, limit=search_limit, timeout=FAST_PLATFORM_TIMEOUT_SECONDS)
                 if platform == "bing_images":
-                    before_text_filter = len(candidates)
-                    removed_candidates = [
-                        candidate for candidate in candidates if not is_textually_relevant(candidate, manifest)
-                    ]
-                    candidates = [candidate for candidate in candidates if candidate not in removed_candidates]
-                    removed = before_text_filter - len(candidates)
-                    if removed:
-                        manifest.logs.append(f"{platform}: removed {removed} textually unrelated results")
-                        for sample in removed_candidates[:3]:
-                            manifest.logs.append(
-                                f"{platform}: text reject sample title={sample.title or '-'} source={sample.source_page_url} image={sample.image_url}"
-                            )
+                    candidates = sorted(candidates, key=lambda candidate: text_relevance_score(candidate, manifest), reverse=True)
+                if not any(candidate.image_url or candidate.local_original_path for candidate in candidates):
+                    manifest.logs.append(f"{platform}: search-page only for {query}, skipped gallery placeholders")
+                    platform_total += len(candidates)
+                    continue
                 for candidate in candidates:
                     if platform == "ozon" and "competitor_reference_only" not in candidate.status_labels:
                         candidate.status_labels.append("competitor_reference_only")
@@ -83,6 +95,9 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
                     for candidate in manifest.candidates
                     if candidate.platform == platform and candidate.local_processed_path
                 )
+                if len([candidate for candidate in manifest.candidates if candidate.local_processed_path]) >= MAX_IMAGES_PER_RUN:
+                    manifest.logs.append("global image limit reached")
+                    break
                 if platform_processed >= target_processed_per_platform:
                     manifest.logs.append(f"{platform}: enough usable images, stop after {platform_processed} processed")
                     break
@@ -148,9 +163,18 @@ async def download_and_process_one(
             candidate.status_labels.append("visual_mismatch")
             manifest.logs.append(f"{candidate.platform}: rejected too-small image {original_path.name}")
             return False
-        if not is_visually_related(reference_path, original_path):
+        text_score = text_relevance_score(candidate, manifest)
+        visual_score = visual_similarity_score(reference_path, original_path)
+        candidate.status_labels.append(f"text_score_{text_score}")
+        candidate.status_labels.append(f"visual_score_{visual_score}")
+        strong_text_match = text_score >= 10
+        balanced_match = text_score >= 4 and visual_score >= 35
+        image_first_match = visual_score >= 65
+        if not (strong_text_match or balanced_match or image_first_match):
             candidate.status_labels.append("visual_mismatch")
-            manifest.logs.append(f"{candidate.platform}: rejected visually unrelated image {original_path.name}")
+            manifest.logs.append(
+                f"{candidate.platform}: rejected image {original_path.name} text_score={text_score} visual_score={visual_score}"
+            )
             return False
         thumb_path = run_dir / "thumbnails" / f"{candidate.id}.jpg"
         processed_path = run_dir / "processed_3x4" / f"{candidate.id}.jpg"

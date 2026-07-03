@@ -34,14 +34,34 @@ def _hashes(path: Path):
 
 
 def is_visually_related(reference_path: Path | None, candidate_path: Path) -> bool:
+    score = visual_similarity_score(reference_path, candidate_path)
+    return score >= 45
+
+
+def visual_similarity_score(reference_path: Path | None, candidate_path: Path) -> int:
     if reference_path is None:
-        return True
+        return 50
     reference = _hashes(reference_path)
     candidate = _hashes(candidate_path)
     phash_distance = reference["phash"] - candidate["phash"]
     dhash_distance = reference["dhash"] - candidate["dhash"]
     ahash_distance = reference["ahash"] - candidate["ahash"]
     color_distance = reference["color"] - candidate["color"]
-    strong_shape_match = phash_distance <= 22 or ahash_distance <= 18
-    balanced_match = phash_distance <= 30 and dhash_distance <= 30 and color_distance <= 14
-    return strong_shape_match or balanced_match
+    score = 0
+    if phash_distance <= 22:
+        score += 35
+    elif phash_distance <= 30:
+        score += 20
+    if ahash_distance <= 18:
+        score += 30
+    elif ahash_distance <= 28:
+        score += 15
+    if dhash_distance <= 26:
+        score += 20
+    elif dhash_distance <= 34:
+        score += 8
+    if color_distance <= 12:
+        score += 20
+    elif color_distance <= 18:
+        score += 8
+    return min(score, 100)
