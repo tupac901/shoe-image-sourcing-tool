@@ -14,6 +14,7 @@ from .config import FAST_PLATFORM_TIMEOUT_SECONDS, IMAGE_DOWNLOAD_TIMEOUT_SECOND
 from .dedupe import group_duplicates
 from .image_processing import compute_phash, make_thumbnail, process_to_3x4
 from .models import ImageCandidate, RunManifest
+from .relevance import find_reference_image, is_visually_related
 from .storage import save_manifest
 
 
@@ -22,6 +23,7 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
     manifest.logs.append("crawl started in fast background mode")
     save_manifest(manifest, run_dir)
     hashes: dict[str, str] = {}
+    reference_path = find_reference_image(run_dir)
 
     for platform in manifest.platforms:
         platform_total = 0
@@ -38,7 +40,12 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
                 manifest.candidates.extend(candidates)
                 platform_total += len(candidates)
                 manifest.logs.append(f"{platform}: collected {len(candidates)} entries for {query}")
-                await download_and_process_candidates(manifest, run_dir, candidates, hashes)
+                rejected = await download_and_process_candidates(manifest, run_dir, candidates, hashes, reference_path)
+                if rejected:
+                    manifest.candidates = [
+                        candidate for candidate in manifest.candidates if "visual_mismatch" not in candidate.status_labels
+                    ]
+                    manifest.logs.append(f"{platform}: removed {rejected} visually unrelated images")
             except Exception as exc:
                 manifest.logs.append(f"{platform}: failed for {query}: {exc}")
         manifest.logs.append(f"{platform}: search step done, {platform_total} entries")
@@ -92,8 +99,10 @@ async def download_and_process_candidates(
     run_dir: Path,
     candidates_to_process: list[ImageCandidate] | None = None,
     hashes: dict[str, str] | None = None,
-) -> None:
+    reference_path: Path | None = None,
+) -> int:
     hashes = hashes if hashes is not None else {}
+    rejected = 0
     async with httpx.AsyncClient(
         follow_redirects=True,
         timeout=IMAGE_DOWNLOAD_TIMEOUT_SECONDS,
@@ -104,8 +113,10 @@ async def download_and_process_candidates(
         semaphore = anyio.Semaphore(4)
 
         async def process_one(candidate):
+            nonlocal rejected
             async with semaphore:
-                await download_and_process_one(client, candidate, run_dir, hashes, manifest)
+                if not await download_and_process_one(client, candidate, run_dir, hashes, manifest, reference_path):
+                    rejected += 1
 
         async with anyio.create_task_group() as task_group:
             for candidate in candidates:
@@ -113,6 +124,7 @@ async def download_and_process_candidates(
     if candidates_to_process is None:
         group_duplicates(manifest.candidates, hashes)
     save_manifest(manifest, run_dir)
+    return rejected
 
 
 async def download_and_process_one(
@@ -121,13 +133,18 @@ async def download_and_process_one(
     run_dir: Path,
     hashes: dict[str, str],
     manifest: RunManifest,
-) -> None:
+    reference_path: Path | None = None,
+) -> bool:
     if not candidate.image_url and not candidate.local_original_path:
-        return
+        return True
     try:
         original_path = Path(candidate.local_original_path) if candidate.local_original_path else await download_image(client, candidate.image_url, run_dir / "originals", candidate.id)
         with Image.open(original_path) as image:
             candidate.width, candidate.height = image.size
+        if not is_visually_related(reference_path, original_path):
+            candidate.status_labels.append("visual_mismatch")
+            manifest.logs.append(f"{candidate.platform}: rejected visually unrelated image {original_path.name}")
+            return False
         thumb_path = run_dir / "thumbnails" / f"{candidate.id}.jpg"
         processed_path = run_dir / "processed_3x4" / f"{candidate.id}.jpg"
         make_thumbnail(original_path, thumb_path)
@@ -136,9 +153,11 @@ async def download_and_process_one(
         candidate.local_thumbnail_path = thumb_path.as_posix()
         candidate.local_processed_path = processed_path.as_posix()
         hashes[candidate.id] = compute_phash(original_path)
+        return True
     except Exception as exc:
         candidate.status_labels.append("download_failed")
         manifest.logs.append(f"{candidate.platform}: image download failed {candidate.image_url}: {exc}")
+        return True
 
 
 async def download_image(client: httpx.AsyncClient, image_url: str, output_dir: Path, candidate_id: str) -> Path:
