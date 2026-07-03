@@ -14,6 +14,7 @@ from .storage import create_run, load_manifest
 
 
 app = FastAPI(title="Shoe Image Sourcing Tool")
+APP_VERSION = "20260703-visual-text-filter-1"
 
 STATIC_DIR = Path(__file__).parent / "static"
 if STATIC_DIR.exists():
@@ -36,6 +37,11 @@ def platforms():
         "default": [platform.model_dump() for platform in DEFAULT_PLATFORMS],
         "optional": [platform.model_dump() for platform in OPTIONAL_PLATFORMS],
     }
+
+
+@app.get("/api/version")
+def version():
+    return {"version": APP_VERSION}
 
 
 @app.post("/api/runs")
