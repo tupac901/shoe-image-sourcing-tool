@@ -55,10 +55,17 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
                 candidates = await adapter.search(query, limit=limit_per_platform, timeout=FAST_PLATFORM_TIMEOUT_SECONDS)
                 if platform == "bing_images":
                     before_text_filter = len(candidates)
-                    candidates = [candidate for candidate in candidates if is_textually_relevant(candidate, manifest)]
+                    removed_candidates = [
+                        candidate for candidate in candidates if not is_textually_relevant(candidate, manifest)
+                    ]
+                    candidates = [candidate for candidate in candidates if candidate not in removed_candidates]
                     removed = before_text_filter - len(candidates)
                     if removed:
                         manifest.logs.append(f"{platform}: removed {removed} textually unrelated results")
+                        for sample in removed_candidates[:3]:
+                            manifest.logs.append(
+                                f"{platform}: text reject sample title={sample.title or '-'} source={sample.source_page_url} image={sample.image_url}"
+                            )
                 for candidate in candidates:
                     if platform == "ozon" and "competitor_reference_only" not in candidate.status_labels:
                         candidate.status_labels.append("competitor_reference_only")
