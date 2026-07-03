@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from hashlib import sha1
+import json
 import re
 from html import unescape
 from urllib.parse import urljoin
@@ -44,10 +45,10 @@ class SearchPageAdapter(PlatformAdapter):
     async def search(self, query: str, limit: int = 12, timeout: float = 6) -> list[ImageCandidate]:
         search_url = build_search_url(self.platform, query)
         try:
-            image_urls = await fetch_image_urls(search_url, limit=limit, timeout=timeout)
+            results = await fetch_image_results(search_url, limit=limit, timeout=timeout)
         except Exception as exc:
-            image_urls = []
-        if not image_urls:
+            results = []
+        if not results:
             candidate_id = sha1(f"{self.platform}:{query}".encode("utf-8")).hexdigest()[:16]
             return [
                 ImageCandidate(
@@ -61,21 +62,22 @@ class SearchPageAdapter(PlatformAdapter):
             ]
 
         candidates = []
-        for image_url in image_urls:
+        for result in results:
+            image_url = result["image_url"]
             candidate_id = sha1(f"{self.platform}:{query}:{image_url}".encode("utf-8")).hexdigest()[:16]
             candidates.append(
                 ImageCandidate(
                     id=candidate_id,
                     platform=self.platform,
-                    source_page_url=search_url,
+                    source_page_url=result.get("source_page_url") or search_url,
                     image_url=image_url,
-                    title=f"{self.platform} image for {query}",
+                    title=result.get("title") or f"{self.platform} image for {query}",
                 )
             )
         return candidates
 
 
-async def fetch_image_urls(page_url: str, limit: int = 12, timeout: float = 6) -> list[str]:
+async def fetch_image_results(page_url: str, limit: int = 12, timeout: float = 6) -> list[dict[str, str]]:
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -85,10 +87,46 @@ async def fetch_image_urls(page_url: str, limit: int = 12, timeout: float = 6) -
     async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=timeout) as client:
         response = await client.get(page_url)
         response.raise_for_status()
-    return extract_image_urls(response.text, str(response.url), limit=limit)
+    return extract_image_results(response.text, str(response.url), limit=limit)
 
 
-def extract_image_urls(html: str, base_url: str, limit: int = 12) -> list[str]:
+async def fetch_image_urls(page_url: str, limit: int = 12, timeout: float = 6) -> list[str]:
+    return [result["image_url"] for result in await fetch_image_results(page_url, limit=limit, timeout=timeout)]
+
+
+def extract_image_results(html: str, base_url: str, limit: int = 12) -> list[dict[str, str]]:
+    if "bing.com/images/" in base_url or "cn.bing.com/images/" in base_url:
+        bing_results = extract_bing_image_results(html, base_url, limit)
+        if bing_results:
+            return bing_results
+    return [{"image_url": url, "source_page_url": base_url, "title": ""} for url in extract_image_urls_from_html(html, base_url, limit)]
+
+
+def extract_bing_image_results(html: str, base_url: str, limit: int = 12) -> list[dict[str, str]]:
+    results: list[dict[str, str]] = []
+    seen = set()
+    for match in re.finditer(r'm="(\{.+?\})"', html):
+        try:
+            item = json.loads(unescape(match.group(1)))
+        except Exception:
+            continue
+        image_url = normalize_image_url(str(item.get("murl") or ""), base_url)
+        if not image_url or not is_likely_product_image(image_url) or image_url in seen:
+            continue
+        seen.add(image_url)
+        results.append(
+            {
+                "image_url": image_url,
+                "source_page_url": normalize_image_url(str(item.get("purl") or base_url), base_url),
+                "title": unescape(str(item.get("t") or item.get("desc") or "")),
+            }
+        )
+        if len(results) >= limit:
+            break
+    return results
+
+
+def extract_image_urls_from_html(html: str, base_url: str, limit: int = 12) -> list[str]:
     urls: list[str] = []
     seen = set()
     patterns = [
@@ -111,6 +149,23 @@ def extract_image_urls(html: str, base_url: str, limit: int = 12) -> list[str]:
             if len(urls) >= limit:
                 return urls
     return urls
+
+
+async def fetch_legacy_image_urls(page_url: str, limit: int = 12, timeout: float = 6) -> list[str]:
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+        )
+    }
+    async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=timeout) as client:
+        response = await client.get(page_url)
+        response.raise_for_status()
+    return extract_image_urls_from_html(response.text, str(response.url), limit=limit)
+
+
+def extract_image_urls(html: str, base_url: str, limit: int = 12) -> list[str]:
+    return [result["image_url"] for result in extract_image_results(html, base_url, limit)]
 
 
 def normalize_image_url(raw_url: str, base_url: str) -> str:

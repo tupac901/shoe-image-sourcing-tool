@@ -5,7 +5,7 @@ from PIL import Image, ImageDraw
 from shoe_image_sourcing.app import app
 from shoe_image_sourcing.models import ImageCandidate, ProductFacts
 from shoe_image_sourcing.storage import create_run, load_manifest, save_manifest
-from shoe_image_sourcing.crawler import collect_candidates, download_and_process_candidates
+from shoe_image_sourcing.crawler import collect_candidates, download_and_process_candidates, is_textually_relevant
 
 
 def test_create_run_builds_expected_directories(tmp_path):
@@ -92,3 +92,28 @@ def test_create_run_rejects_brand_only_search(tmp_path):
         )
     assert response.status_code == 400
     assert "型号" in response.json()["detail"]
+
+
+def test_bing_candidate_must_match_sku_or_model_text(tmp_path):
+    manifest, _ = create_run(
+        ProductFacts(brand="Nike", model="Air Monarch IV", sku="416355-102"),
+        ["Nike shoe"],
+        ["bing_images"],
+        output_root=tmp_path,
+    )
+    good = ImageCandidate(
+        id="good",
+        platform="bing_images",
+        source_page_url="https://example.com/nike-air-monarch-iv-416355-102",
+        image_url="https://example.com/air-monarch.jpg",
+        title="Nike Air Monarch IV White Navy 416355-102",
+    )
+    bad = ImageCandidate(
+        id="bad",
+        platform="bing_images",
+        source_page_url="https://example.com/pink-dunk",
+        image_url="https://example.com/pink-dunk.jpg",
+        title="Nike SB Dunk Low pink shoes",
+    )
+    assert is_textually_relevant(good, manifest)
+    assert not is_textually_relevant(bad, manifest)
