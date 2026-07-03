@@ -14,6 +14,8 @@ from .models import ImageCandidate, RunManifest
 from .relevance import find_reference_image, visual_similarity_score
 from .storage import save_manifest
 
+REJECTED_STATUS_LABELS = {"visual_mismatch", "download_failed"}
+
 
 def _model_tokens(model: str | None) -> list[str]:
     if not model:
@@ -54,6 +56,16 @@ def is_textually_relevant(candidate: ImageCandidate, manifest: RunManifest) -> b
     return text_relevance_score(candidate, manifest) >= 4
 
 
+def has_rejected_status(candidate: ImageCandidate) -> bool:
+    return any(label in REJECTED_STATUS_LABELS for label in candidate.status_labels)
+
+
+def prune_rejected_candidates(manifest: RunManifest) -> int:
+    before = len(manifest.candidates)
+    manifest.candidates = [candidate for candidate in manifest.candidates if not has_rejected_status(candidate)]
+    return before - len(manifest.candidates)
+
+
 async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_platform: int = 6) -> RunManifest:
     manifest.status = "running"
     manifest.logs.append("crawl started in fast background mode")
@@ -85,11 +97,10 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
                 platform_total += len(candidates)
                 manifest.logs.append(f"{platform}: collected {len(candidates)} entries for {query}")
                 rejected = await download_and_process_candidates(manifest, run_dir, candidates, hashes, reference_path)
-                if rejected:
-                    manifest.candidates = [
-                        candidate for candidate in manifest.candidates if "visual_mismatch" not in candidate.status_labels
-                    ]
-                    manifest.logs.append(f"{platform}: removed {rejected} visually unrelated images")
+                removed = prune_rejected_candidates(manifest)
+                if rejected or removed:
+                    manifest.logs.append(f"{platform}: removed {removed or rejected} unusable or unrelated images")
+                    save_manifest(manifest, run_dir)
                 platform_processed = sum(
                     1
                     for candidate in manifest.candidates
@@ -141,7 +152,6 @@ async def download_and_process_candidates(
                 task_group.start_soon(process_one, candidate)
     if candidates_to_process is None:
         group_duplicates(manifest.candidates, hashes)
-    save_manifest(manifest, run_dir)
     return rejected
 
 
@@ -188,7 +198,7 @@ async def download_and_process_one(
     except Exception as exc:
         candidate.status_labels.append("download_failed")
         manifest.logs.append(f"{candidate.platform}: image download failed {candidate.image_url}: {exc}")
-        return True
+        return False
 
 
 async def download_image(client: httpx.AsyncClient, image_url: str, output_dir: Path, candidate_id: str) -> Path:

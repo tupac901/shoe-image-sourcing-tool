@@ -10,6 +10,9 @@ const runTitle = document.querySelector("#run-title");
 const summary = document.querySelector("#summary");
 const submitButton = document.querySelector("#submit-button");
 
+const hiddenStatusLabels = new Set(["visual_mismatch", "download_failed", "search_page_only", "fetch_skipped_or_blocked"]);
+const internalStatusPattern = /^(text_score|visual_score)_/;
+
 const knownBrands = [
   "Nike",
   "Adidas",
@@ -105,9 +108,27 @@ function selectedPlatforms() {
     .join(",");
 }
 
+function isVisibleCandidate(candidate) {
+  const labels = candidate.status_labels || [];
+  const hidden = labels.some((label) => hiddenStatusLabels.has(label));
+  const hasImage = candidate.local_processed_path || candidate.local_thumbnail_path || candidate.local_original_path || candidate.image_url;
+  return !hidden && Boolean(hasImage);
+}
+
+function visibleCandidates(run) {
+  return (run.candidates || []).filter(isVisibleCandidate);
+}
+
+function displayTags(candidate) {
+  return (candidate.status_labels || [])
+    .filter((tag) => !hiddenStatusLabels.has(tag))
+    .filter((tag) => !internalStatusPattern.test(tag));
+}
+
 function renderSummary(run) {
-  const withImages = run.candidates.filter((candidate) => candidate.local_processed_path || candidate.local_thumbnail_path || candidate.local_original_path || candidate.image_url).length;
-  const processed = run.candidates.filter((candidate) => candidate.local_processed_path).length;
+  const candidates = visibleCandidates(run);
+  const withImages = candidates.filter((candidate) => candidate.local_processed_path || candidate.local_thumbnail_path || candidate.local_original_path || candidate.image_url).length;
+  const processed = candidates.filter((candidate) => candidate.local_processed_path).length;
   const searchOnly = run.candidates.filter((candidate) => candidate.status_labels.includes("search_page_only")).length;
   summary.textContent = `图片 ${withImages} 张，已转 3:4 ${processed} 张，搜索页线索 ${searchOnly} 条`;
 }
@@ -142,10 +163,10 @@ async function pollRun(runId) {
   renderSummary(run);
   logs.textContent = run.logs.join("\n");
   gallery.innerHTML = "";
-  run.candidates.forEach((candidate) => {
+  visibleCandidates(run).forEach((candidate) => {
     const card = document.createElement("article");
     card.className = "card";
-    const tags = candidate.status_labels.map((tag) => `<span class="tag">${tag}</span>`).join(" ");
+    const tags = displayTags(candidate).map((tag) => `<span class="tag">${tag}</span>`).join(" ");
     card.innerHTML = `
       ${imageMarkup(candidate)}
       <div class="meta"><strong>${candidate.platform}</strong></div>

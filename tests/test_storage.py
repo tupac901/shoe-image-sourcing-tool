@@ -5,7 +5,7 @@ from PIL import Image, ImageDraw
 from shoe_image_sourcing.app import app
 from shoe_image_sourcing.models import ImageCandidate, ProductFacts
 from shoe_image_sourcing.storage import create_run, load_manifest, save_manifest
-from shoe_image_sourcing.crawler import collect_candidates, download_and_process_candidates, is_textually_relevant
+from shoe_image_sourcing.crawler import collect_candidates, download_and_process_candidates, is_textually_relevant, prune_rejected_candidates
 
 
 def test_create_run_builds_expected_directories(tmp_path):
@@ -70,6 +70,29 @@ async def test_download_processing_rejects_visual_mismatch(tmp_path):
     assert rejected == 1
     assert "visual_mismatch" in candidate.status_labels
     assert candidate.local_processed_path is None
+
+
+def test_prune_rejected_candidates_removes_bad_gallery_cards(tmp_path):
+    manifest, _ = create_run(ProductFacts(brand="Nike"), ["Nike shoe"], ["bing_images"], tmp_path)
+    good = ImageCandidate(id="good", platform="bing_images", source_page_url="https://example.com/good", image_url="https://example.com/good.jpg")
+    bad = ImageCandidate(
+        id="bad",
+        platform="bing_images",
+        source_page_url="https://example.com/meme",
+        image_url="https://example.com/meme.jpg",
+        status_labels=["visual_mismatch", "text_score_0", "visual_score_40"],
+    )
+    failed = ImageCandidate(
+        id="failed",
+        platform="bing_images",
+        source_page_url="https://example.com/blocked",
+        image_url="https://example.com/blocked.jpg",
+        status_labels=["download_failed"],
+    )
+    manifest.candidates.extend([good, bad, failed])
+
+    assert prune_rejected_candidates(manifest) == 2
+    assert manifest.candidates == [good]
 
 
 def test_platforms_endpoint_returns_defaults():
