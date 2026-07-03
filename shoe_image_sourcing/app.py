@@ -14,7 +14,7 @@ from .storage import create_run, load_manifest
 
 
 app = FastAPI(title="Shoe Image Sourcing Tool")
-APP_VERSION = "20260704-hide-rejected-results-1"
+APP_VERSION = "20260704-reject-browser-assets-1"
 
 STATIC_DIR = Path(__file__).parent / "static"
 if STATIC_DIR.exists():

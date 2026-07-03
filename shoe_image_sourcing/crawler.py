@@ -15,6 +15,7 @@ from .relevance import find_reference_image, visual_similarity_score
 from .storage import save_manifest
 
 REJECTED_STATUS_LABELS = {"visual_mismatch", "download_failed"}
+BROWSER_ASSET_MARKERS = ("r.bing.com/rp/", "www.bing.com/rp/", "bing.com/rp/")
 
 
 def _model_tokens(model: str | None) -> list[str]:
@@ -54,6 +55,11 @@ def text_relevance_score(candidate: ImageCandidate, manifest: RunManifest) -> in
 
 def is_textually_relevant(candidate: ImageCandidate, manifest: RunManifest) -> bool:
     return text_relevance_score(candidate, manifest) >= 4
+
+
+def is_browser_asset(candidate: ImageCandidate) -> bool:
+    url = (candidate.image_url or "").lower()
+    return any(marker in url for marker in BROWSER_ASSET_MARKERS)
 
 
 def has_rejected_status(candidate: ImageCandidate) -> bool:
@@ -166,6 +172,10 @@ async def download_and_process_one(
     if not candidate.image_url and not candidate.local_original_path:
         return True
     try:
+        if is_browser_asset(candidate):
+            candidate.status_labels.append("visual_mismatch")
+            manifest.logs.append(f"{candidate.platform}: rejected browser/search-ui asset {candidate.image_url}")
+            return False
         original_path = Path(candidate.local_original_path) if candidate.local_original_path else await download_image(client, candidate.image_url, run_dir / "originals", candidate.id)
         with Image.open(original_path) as image:
             candidate.width, candidate.height = image.size
@@ -179,7 +189,7 @@ async def download_and_process_one(
         candidate.status_labels.append(f"visual_score_{visual_score}")
         strong_text_match = text_score >= 10
         balanced_match = text_score >= 4 and visual_score >= 35
-        image_first_match = visual_score >= 65
+        image_first_match = text_score >= 4 and visual_score >= 65
         if not (strong_text_match or balanced_match or image_first_match):
             candidate.status_labels.append("visual_mismatch")
             manifest.logs.append(
