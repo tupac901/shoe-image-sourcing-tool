@@ -34,6 +34,13 @@ def _join(parts: list[str | None]) -> str:
     return " ".join(part.strip() for part in parts if part and part.strip())
 
 
+def _quote(value: str | None) -> str | None:
+    if not value:
+        return None
+    value = value.strip()
+    return f'"{value}"' if value else None
+
+
 def _clean_line(value: str) -> str:
     return re.sub(r"\s+", " ", value.replace("【", " ").replace("】", " ")).strip(" -|,，;；")
 
@@ -123,8 +130,10 @@ def generate_queries(facts: ProductFacts) -> list[str]:
     keyword_base = _join([facts.brand, facts.keywords])
     primary = base or keyword_base or "shoe product"
     sku = facts.sku or primary
+    exact_sku_model_query = _join([_quote(facts.sku), _quote(_join([facts.brand, facts.model])), "shoe"]) if facts.sku else None
 
     queries = [
+        exact_sku_model_query,
         f"{sku_first_base} product images" if sku_first_base else None,
         f"{sku_first_base} official product photos" if sku_first_base else None,
         f"{primary} shoes",
