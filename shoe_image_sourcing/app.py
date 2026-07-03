@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import DEFAULT_PLATFORMS, MAX_UPLOAD_MB, OPTIONAL_PLATFORMS, OUTPUT_ROOT, SUPPORTED_IMAGE_TYPES
 from .crawler import collect_candidates
 from .models import ProductFacts
-from .query import generate_queries
+from .query import enrich_product_facts, generate_queries
 from .storage import create_run, load_manifest
 
 
@@ -42,6 +42,7 @@ def platforms():
 async def create_crawl_run(
     background_tasks: BackgroundTasks,
     image: UploadFile = File(...),
+    product_text: str | None = Form(None),
     brand: str | None = Form(None),
     model: str | None = Form(None),
     sku: str | None = Form(None),
@@ -52,12 +53,15 @@ async def create_crawl_run(
     if image.content_type not in SUPPORTED_IMAGE_TYPES:
         raise HTTPException(status_code=400, detail="Only JPEG, PNG, and WebP images are supported")
 
-    facts = ProductFacts(brand=brand, model=model, sku=sku, color=color, keywords=keywords)
+    facts = enrich_product_facts(
+        ProductFacts(product_text=product_text, brand=brand, model=model, sku=sku, color=color, keywords=keywords)
+    )
     if not any([facts.model, facts.sku, facts.keywords]):
         raise HTTPException(
             status_code=400,
-            detail="请至少填写型号、货号或补充关键词之一；只填品牌会搜到大量无关图片。",
+            detail="请至少填写型号、货号、补充关键词，或粘贴完整产品信息；只填品牌会搜到大量无关图片。",
         )
+
     selected_platforms = [item.strip() for item in platforms.split(",") if item.strip()]
     queries = generate_queries(facts)
     manifest, run_dir = create_run(facts, queries, selected_platforms, OUTPUT_ROOT)
@@ -73,7 +77,7 @@ async def create_crawl_run(
             handle.write(chunk)
 
     background_tasks.add_task(collect_candidates, manifest, run_dir)
-    return {"run_id": manifest.run_id, "status": manifest.status, "queries": queries}
+    return {"run_id": manifest.run_id, "status": manifest.status, "queries": queries, "facts": facts.model_dump()}
 
 
 @app.get("/api/runs/{run_id}")

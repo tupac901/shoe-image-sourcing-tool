@@ -1,4 +1,7 @@
 const form = document.querySelector("#run-form");
+const productText = document.querySelector("#product-text");
+const detectedFacts = document.querySelector("#detected-facts");
+const clearProductText = document.querySelector("#clear-product-text");
 const fastPlatformBox = document.querySelector("#fast-platforms");
 const deepPlatformBox = document.querySelector("#deep-platforms");
 const logs = document.querySelector("#logs");
@@ -6,6 +9,80 @@ const gallery = document.querySelector("#gallery");
 const runTitle = document.querySelector("#run-title");
 const summary = document.querySelector("#summary");
 const submitButton = document.querySelector("#submit-button");
+
+const knownBrands = [
+  "Nike",
+  "Adidas",
+  "Puma",
+  "Reebok",
+  "Asics",
+  "New Balance",
+  "Mizuno",
+  "Fila",
+  "Skechers",
+  "Under Armour",
+  "Converse",
+  "Vans",
+  "Jordan",
+];
+
+function cleanValue(value) {
+  return (value || "").replace(/[【】]/g, " ").replace(/\s+/g, " ").replace(/^[-|｜,，;；\s]+|[-|｜,，;；\s]+$/g, "");
+}
+
+function findLabeled(text, labels) {
+  const lines = text.split(/\r?\n/);
+  for (const line of lines) {
+    for (const label of labels) {
+      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const match = line.match(new RegExp(`${escaped}\\s*[:：]\\s*(.+)`, "i"));
+      if (match) return cleanValue(match[1]);
+    }
+  }
+  return "";
+}
+
+function extractProductFacts(text) {
+  const brand = knownBrands.find((item) => new RegExp(`(^|[^a-z0-9])${item.replace(/\s+/g, "\\s+")}([^a-z0-9]|$)`, "i").test(text)) || "";
+  const sku =
+    findLabeled(text, ["官方货号", "货号", "款号", "SKU", "Article", "Артикул"]) ||
+    (text.match(/\b([A-Z0-9]{3,}-[A-Z0-9]{2,})\b/i)?.[1] || "").toUpperCase();
+  const color = findLabeled(text, ["Цвет модели", "颜色", "色号", "Color", "Цвет"]);
+  const labeledName = findLabeled(text, ["俄语名称", "品类", "名称", "产品名称", "Title", "Name"]);
+  let model = "";
+  const source = labeledName || text.split(/\r?\n/).slice(0, 6).join(" ");
+  if (brand) {
+    const match = source.match(new RegExp(`${brand}\\s+([A-Za-z0-9][A-Za-z0-9 '\\-]+)`, "i"));
+    if (match) model = cleanValue(match[1]).split(/[|｜,，;；]/)[0].slice(0, 80);
+  }
+  if (!model && labeledName) model = cleanValue(labeledName).slice(0, 100);
+  const keywordLines = text
+    .split(/\r?\n/)
+    .map(cleanValue)
+    .filter((line) => /目标用户|使用场景|核心卖点|dad shoes|кроссовки/i.test(line));
+  return { brand, model, sku, color, keywords: keywordLines.join(" ").slice(0, 220) };
+}
+
+function inputByName(name) {
+  return form.querySelector(`[name="${name}"]`);
+}
+
+function applyDetectedFacts({ fillOnlyEmpty = true } = {}) {
+  const text = productText.value.trim();
+  if (!text) {
+    detectedFacts.textContent = "等待粘贴产品资料";
+    return;
+  }
+  const facts = extractProductFacts(text);
+  ["brand", "model", "sku", "color", "keywords"].forEach((name) => {
+    const input = inputByName(name);
+    if (facts[name] && (!fillOnlyEmpty || !input.value.trim())) input.value = facts[name];
+  });
+  const chips = Object.entries(facts)
+    .filter(([, value]) => value)
+    .map(([key, value]) => `${key}: ${value}`);
+  detectedFacts.textContent = chips.length ? `已识别 ${chips.join(" | ")}` : "未识别到货号/型号，可手动补充字段";
+}
 
 async function loadPlatforms() {
   const res = await fetch("/api/platforms");
@@ -87,12 +164,19 @@ async function pollRun(runId) {
   }
 }
 
+productText.addEventListener("input", () => applyDetectedFacts());
+clearProductText.addEventListener("click", () => {
+  productText.value = "";
+  detectedFacts.textContent = "等待粘贴产品资料";
+});
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
+  applyDetectedFacts({ fillOnlyEmpty: true });
   const body = new FormData(form);
-  if (!body.get("model")?.trim() && !body.get("sku")?.trim() && !body.get("keywords")?.trim()) {
+  if (!body.get("product_text")?.trim() && !body.get("model")?.trim() && !body.get("sku")?.trim() && !body.get("keywords")?.trim()) {
     runTitle.textContent = "信息不够";
-    summary.textContent = "请至少填写型号、货号或补充关键词之一；只填 Nike 会搜到很多无关图片。";
+    summary.textContent = "请至少粘贴产品信息，或填写型号、货号、补充关键词之一；只填 Nike 会搜到很多无关图片。";
     logs.textContent = "";
     gallery.innerHTML = "";
     return;
@@ -115,7 +199,7 @@ form.addEventListener("submit", async (event) => {
       return;
     }
     runTitle.textContent = `任务 ${data.run_id} · 已创建`;
-    summary.textContent = "任务已进入后台，正在逐个平台抓图。";
+    summary.textContent = data.facts ? `已用识别信息搜索：${[data.facts.sku, data.facts.brand, data.facts.model, data.facts.color].filter(Boolean).join(" ")}` : "任务已进入后台，正在逐个平台抓图。";
     pollRun(data.run_id);
   } catch (error) {
     runTitle.textContent = "网络或服务异常";

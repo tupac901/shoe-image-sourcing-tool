@@ -15,13 +15,14 @@ class PlatformConfig(BaseModel):
 
 
 class ProductFacts(BaseModel):
+    product_text: str | None = None
     brand: str | None = None
     model: str | None = None
     sku: str | None = None
     color: str | None = None
     keywords: str | None = None
 
-    @field_validator("brand", "model", "sku", "color", "keywords", mode="before")
+    @field_validator("product_text", "brand", "model", "sku", "color", "keywords", mode="before")
     @classmethod
     def normalize_blank(cls, value):
         if value is None:

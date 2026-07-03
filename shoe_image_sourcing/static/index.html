@@ -10,14 +10,37 @@
   <main class="shell">
     <aside class="panel">
       <h1>鞋类图源采集台</h1>
-      <p class="hint">默认快速模式只跑轻量平台。请填写型号、货号或关键词，否则只搜品牌会出现大量无关图片。</p>
+      <p class="hint">把产品资料粘贴到上方，系统会优先识别货号、型号、颜色，再去 Bing、Yandex、eBay 等平台采集图片并转成 3:4。</p>
       <form id="run-form">
+        <section class="paste-card">
+          <div class="paste-head">
+            <span>产品信息</span>
+            <button class="ghost-button" id="clear-product-text" type="button">清空</button>
+          </div>
+          <textarea
+            name="product_text"
+            id="product-text"
+            placeholder="把完整产品信息粘贴到这里，例如：
+【产品基础信息】
+- 品类：男士综合训练休闲老爹鞋 | Nike Air Monarch IV 白藏蓝复古休闲运动鞋
+- 俄语名称：Мужские кроссовки для тренировок Nike Air Monarch IV...
+- 官方货号：416355-102
+
+【精准规格参数】
+Цвет модели：белый + темно-синий..."
+          ></textarea>
+          <div id="detected-facts" class="detected">等待粘贴产品资料</div>
+        </section>
+
         <label>产品主图 <input name="image" type="file" accept="image/*" required /></label>
-        <label>品牌 <input name="brand" placeholder="例如 Nike" /></label>
-        <label>型号 <input name="model" placeholder="必填之一：例如 Air Monarch IV" /></label>
-        <label>货号 <input name="sku" placeholder="必填之一：例如 415445-102" /></label>
-        <label>颜色 <input name="color" placeholder="例如 White Navy" /></label>
-        <label>补充关键词 <input name="keywords" placeholder="必填之一：例如 dad shoes, white navy" /></label>
+        <div class="field-grid">
+          <label>品牌 <input name="brand" placeholder="例如 Nike" /></label>
+          <label>型号 <input name="model" placeholder="例如 Air Monarch IV" /></label>
+          <label>货号 <input name="sku" placeholder="例如 415445-102" /></label>
+          <label>颜色 <input name="color" placeholder="例如 White Navy" /></label>
+        </div>
+        <label>补充关键词 <input name="keywords" placeholder="例如 dad shoes, white navy, leather sneakers" /></label>
+
         <section>
           <h2>快速平台</h2>
           <div id="fast-platforms" class="platforms"></div>

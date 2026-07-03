@@ -11,7 +11,7 @@ body {
 
 .shell {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: minmax(380px, 460px) 1fr;
   min-height: 100vh;
 }
 
@@ -53,6 +53,20 @@ input {
   font-size: 14px;
 }
 
+textarea {
+  width: 100%;
+  min-height: 280px;
+  border: 0;
+  padding: 14px;
+  resize: vertical;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.65;
+  background: #fff;
+  color: #111827;
+  outline: none;
+}
+
 button {
   width: 100%;
   border: 0;
@@ -67,6 +81,49 @@ button {
 button:disabled {
   cursor: wait;
   opacity: 0.65;
+}
+
+.paste-card {
+  border: 1px solid #dfe3e8;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 16px;
+  background: #fff;
+}
+
+.paste-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
+  padding: 0 12px;
+  background: #f5f6f8;
+  border-bottom: 1px solid #e5e7eb;
+  font-weight: 700;
+}
+
+.ghost-button {
+  width: auto;
+  padding: 5px 9px;
+  background: transparent;
+  color: #5f6368;
+  border: 1px solid #d0d5dd;
+  font-size: 12px;
+}
+
+.detected {
+  border-top: 1px solid #edf0f2;
+  padding: 9px 12px;
+  color: #5f6368;
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 10px;
 }
 
 .platforms {

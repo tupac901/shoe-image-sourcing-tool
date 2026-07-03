@@ -1,6 +1,6 @@
 from shoe_image_sourcing.config import DEFAULT_PLATFORMS, OPTIONAL_PLATFORMS
 from shoe_image_sourcing.models import ProductFacts
-from shoe_image_sourcing.query import generate_queries
+from shoe_image_sourcing.query import enrich_product_facts, generate_queries
 
 
 def test_platform_defaults_include_ozon_reference_sources():
@@ -33,3 +33,20 @@ def test_generate_queries_uses_keywords_when_sku_missing():
     facts = ProductFacts(brand="Nike", keywords="white navy dad shoes")
     queries = generate_queries(facts)
     assert "Nike white navy dad shoes shoes" in queries
+
+
+def test_enrich_product_facts_from_pasted_product_text():
+    text = """
+【产品基础信息】
+- 品类：男士综合训练休闲老爹鞋 | Nike Air Monarch IV 白藏蓝复古休闲运动鞋
+- 俄语名称：Мужские кроссовки для тренировок Nike Air Monarch IV, белый с темно-синей отделкой
+- 官方货号：416355-102
+
+【精准规格参数】
+Цвет модели：белый + темно-синий + серебристый металлический логотип
+"""
+    facts = enrich_product_facts(ProductFacts(product_text=text))
+    assert facts.brand == "Nike"
+    assert facts.sku == "416355-102"
+    assert facts.model == "Air Monarch IV"
+    assert "белый" in facts.color
