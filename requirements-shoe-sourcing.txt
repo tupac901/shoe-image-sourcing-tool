@@ -6,4 +6,5 @@ httpx==0.28.1
 anyio==4.2.0
 pillow==11.0.0
 imagehash==4.3.1
+better-bing-image-downloader==3.6.0
 pytest==8.3.4

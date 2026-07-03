@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 from pathlib import Path
+from hashlib import sha1
 
 import anyio
 import httpx
+from better_bing_image_downloader import Bing
 from PIL import Image
 
 from .adapters.search_pages import SearchPageAdapter
+from .adapters.search_pages import build_search_url
 from .config import FAST_PLATFORM_TIMEOUT_SECONDS, IMAGE_DOWNLOAD_TIMEOUT_SECONDS
 from .dedupe import group_duplicates
 from .image_processing import compute_phash, make_thumbnail, process_to_3x4
-from .models import RunManifest
+from .models import ImageCandidate, RunManifest
 from .storage import save_manifest
 
 
@@ -21,10 +24,13 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
 
     for platform in manifest.platforms:
         platform_total = 0
-        adapter = SearchPageAdapter(platform)
         for query in manifest.queries[:1]:
             try:
-                candidates = await adapter.search(query, limit=limit_per_platform, timeout=FAST_PLATFORM_TIMEOUT_SECONDS)
+                if platform == "bing_images":
+                    candidates = await collect_bing_downloader_candidates(query, run_dir, limit_per_platform)
+                else:
+                    adapter = SearchPageAdapter(platform)
+                    candidates = await adapter.search(query, limit=limit_per_platform, timeout=FAST_PLATFORM_TIMEOUT_SECONDS)
                 for candidate in candidates:
                     if platform == "ozon" and "competitor_reference_only" not in candidate.status_labels:
                         candidate.status_labels.append("competitor_reference_only")
@@ -42,6 +48,43 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
     return manifest
 
 
+async def collect_bing_downloader_candidates(query: str, run_dir: Path, limit: int):
+    download_dir = run_dir / "originals" / "bing_images"
+    download_dir.mkdir(parents=True, exist_ok=True)
+
+    def run_downloader():
+        engine = Bing(
+            query=query,
+            limit=limit,
+            output_dir=download_dir,
+            timeout=FAST_PLATFORM_TIMEOUT_SECONDS,
+            verbose=False,
+            name="bing",
+            max_workers=4,
+            min_dimension=120,
+            force_replace=True,
+        )
+        engine.run()
+
+    await anyio.to_thread.run_sync(run_downloader)
+
+    candidates = []
+    for path in sorted(item for item in download_dir.iterdir() if item.is_file()):
+        candidate_id = sha1(f"bing_images:{query}:{path.name}".encode("utf-8")).hexdigest()[:16]
+        candidates.append(
+            ImageCandidate(
+                id=candidate_id,
+                platform="bing_images",
+                source_page_url=build_search_url("bing_images", query),
+                image_url="",
+                title=f"Bing downloaded image for {query}",
+                local_original_path=path.as_posix(),
+                status_labels=["open_source_downloader"],
+            )
+        )
+    return candidates
+
+
 async def download_and_process_candidates(manifest: RunManifest, run_dir: Path) -> None:
     hashes: dict[str, str] = {}
     async with httpx.AsyncClient(
@@ -49,7 +92,7 @@ async def download_and_process_candidates(manifest: RunManifest, run_dir: Path) 
         timeout=IMAGE_DOWNLOAD_TIMEOUT_SECONDS,
         headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0 Safari/537.36"},
     ) as client:
-        candidates = [candidate for candidate in manifest.candidates if candidate.image_url]
+        candidates = [candidate for candidate in manifest.candidates if candidate.image_url or candidate.local_original_path]
         semaphore = anyio.Semaphore(4)
 
         async def process_one(candidate):
@@ -70,10 +113,10 @@ async def download_and_process_one(
     hashes: dict[str, str],
     manifest: RunManifest,
 ) -> None:
-    if not candidate.image_url:
+    if not candidate.image_url and not candidate.local_original_path:
         return
     try:
-        original_path = await download_image(client, candidate.image_url, run_dir / "originals", candidate.id)
+        original_path = Path(candidate.local_original_path) if candidate.local_original_path else await download_image(client, candidate.image_url, run_dir / "originals", candidate.id)
         with Image.open(original_path) as image:
             candidate.width, candidate.height = image.size
         thumb_path = run_dir / "thumbnails" / f"{candidate.id}.jpg"
