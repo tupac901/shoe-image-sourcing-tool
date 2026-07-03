@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: shoe-image-sourcing-tool
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements-shoe-sourcing.txt
+    startCommand: uvicorn shoe_image_sourcing.app:app --host 0.0.0.0 --port $PORT
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7

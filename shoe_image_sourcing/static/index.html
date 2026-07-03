@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>鞋类图源采集台</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <aside class="panel">
+      <h1>鞋类图源采集台</h1>
+      <form id="run-form">
+        <label>产品主图 <input name="image" type="file" accept="image/*" required /></label>
+        <label>品牌 <input name="brand" placeholder="Nike" /></label>
+        <label>型号 <input name="model" placeholder="Air Monarch IV" /></label>
+        <label>货号 <input name="sku" placeholder="415445-102" /></label>
+        <label>颜色 <input name="color" placeholder="White Navy" /></label>
+        <label>补充关键词 <input name="keywords" placeholder="dad shoes" /></label>
+        <section>
+          <h2>平台</h2>
+          <div id="platforms" class="platforms"></div>
+        </section>
+        <button type="submit">开始采集</button>
+      </form>
+    </aside>
+    <section class="workspace">
+      <div class="status">
+        <strong id="run-title">等待开始</strong>
+        <pre id="logs"></pre>
+      </div>
+      <div id="gallery" class="gallery"></div>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
