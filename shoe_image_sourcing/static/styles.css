@@ -138,6 +138,10 @@ pre {
   border-radius: 6px;
 }
 
+.image-link {
+  display: block;
+}
+
 .placeholder {
   display: grid;
   place-items: center;
@@ -153,6 +157,37 @@ pre {
   font-size: 12px;
   color: #555;
   margin-top: 8px;
+  word-break: break-all;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: #111;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 9px;
+  text-decoration: none;
+}
+
+.source {
+  margin-top: 8px;
+  color: #5f6368;
+  font-size: 12px;
+}
+
+.source a {
+  color: #1a73e8;
   word-break: break-all;
 }
 
