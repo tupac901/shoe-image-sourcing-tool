@@ -60,3 +60,28 @@ async def test_visual_only_match_keeps_high_similarity_candidate(tmp_path):
 
     assert rejected == 0
     assert candidate.local_processed_path
+
+
+@pytest.mark.anyio
+async def test_visual_only_match_rejects_non_product_title(tmp_path):
+    manifest, run_dir = create_run(ProductFacts(brand="Nike", model="Air Monarch IV", sku="416355-102"), ["Nike shoe"], ["bing_images"], tmp_path)
+    reference = run_dir / "input" / "reference.jpg"
+    candidate_path = run_dir / "originals" / "ace-combat.jpg"
+    candidate_path.parent.mkdir(parents=True, exist_ok=True)
+    _shoe(reference)
+    _shoe(candidate_path)
+    candidate = ImageCandidate(
+        id="ace-combat",
+        platform="bing_images",
+        source_page_url="https://www.youtube.com/watch?v=gameplay",
+        image_url="https://example.com/ace-combat.jpg",
+        title="Ace Combat 2 Gameplay PSX YouTube",
+        local_original_path=candidate_path.as_posix(),
+    )
+    manifest.candidates.append(candidate)
+
+    rejected = await download_and_process_candidates(manifest, run_dir, [candidate], {}, reference)
+
+    assert rejected == 1
+    assert "visual_mismatch" in candidate.status_labels
+    assert candidate.local_processed_path is None

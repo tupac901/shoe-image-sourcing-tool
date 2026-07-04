@@ -18,6 +18,25 @@ from .visual_analysis import analyze_image, profile_similarity_score
 REJECTED_STATUS_LABELS = {"visual_mismatch", "download_failed"}
 BROWSER_ASSET_MARKERS = ("r.bing.com/rp/", "www.bing.com/rp/", "bing.com/rp/")
 SEARCH_PAGE_MARKERS = ("/images/search", "/search?", "/search/", "catalogsearch", "wholesale?searchtext", "/s?k=")
+NON_PRODUCT_TITLE_MARKERS = (
+    "youtube",
+    "gameplay",
+    "game play",
+    "walkthrough",
+    "trailer",
+    "ace combat",
+    "playstation",
+    "ps1",
+    "ps2",
+    "xbox",
+    "nintendo",
+    "meme",
+    "chart",
+    "wallpaper",
+    "clipart",
+    "tutorial",
+    "review video",
+)
 
 
 GENERIC_MODEL_TOKENS = {
@@ -100,6 +119,22 @@ def is_generic_search_candidate(candidate: ImageCandidate) -> bool:
     title = (candidate.title or "").lower()
     generic_title = title.startswith(f"{candidate.platform} image for ") or title.startswith("search results for ")
     return generic_title or is_search_page_source(candidate)
+
+
+def has_non_product_title(candidate: ImageCandidate) -> bool:
+    title = (candidate.title or "").lower()
+    source = (candidate.source_page_url or "").lower()
+    text = f"{title} {source}"
+    return any(marker in text for marker in NON_PRODUCT_TITLE_MARKERS)
+
+
+def has_specific_candidate_text(candidate: ImageCandidate) -> bool:
+    title = (candidate.title or "").strip().lower()
+    if not title:
+        return False
+    if title in {"untitled", "untitled image", "image", "photo", "product image"}:
+        return False
+    return not title.startswith(f"{candidate.platform} image for ") and not title.startswith("search results for ")
 
 
 def has_rejected_status(candidate: ImageCandidate) -> bool:
@@ -233,11 +268,15 @@ async def download_and_process_one(
         candidate.status_labels.append(f"text_score_{text_score}")
         candidate.status_labels.append(f"visual_score_{visual_score}")
         candidate.status_labels.append(f"profile_score_{profile_score}")
+        if has_non_product_title(candidate):
+            candidate.status_labels.append("visual_mismatch")
+            manifest.logs.append(f"{candidate.platform}: rejected non-product title {candidate.title}")
+            return False
         generic_search_candidate = is_generic_search_candidate(candidate)
         strong_text_match = text_score >= 10 and (visual_score >= 20 or profile_score >= 45)
         balanced_match = text_score >= 4 and visual_score >= 35 and profile_score >= 40
         image_first_match = text_score >= 4 and visual_score >= 65 and profile_score >= 50
-        visual_only_match = visual_score >= 78 and profile_score >= 72
+        visual_only_match = not has_specific_candidate_text(candidate) and visual_score >= 78 and profile_score >= 72
         generic_search_match = generic_search_candidate and text_score >= 4 and visual_score >= 82 and profile_score >= 55
         non_generic_match = not generic_search_candidate and (strong_text_match or balanced_match or image_first_match)
         if not (generic_search_match or non_generic_match or visual_only_match):
