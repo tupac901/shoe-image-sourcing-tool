@@ -16,12 +16,40 @@ from .storage import save_manifest
 
 REJECTED_STATUS_LABELS = {"visual_mismatch", "download_failed"}
 BROWSER_ASSET_MARKERS = ("r.bing.com/rp/", "www.bing.com/rp/", "bing.com/rp/")
+SEARCH_PAGE_MARKERS = ("/images/search", "/search?", "/search/", "catalogsearch", "wholesale?searchtext", "/s?k=")
+
+
+GENERIC_MODEL_TOKENS = {
+    "men",
+    "mens",
+    "man",
+    "women",
+    "womens",
+    "shoe",
+    "shoes",
+    "sneaker",
+    "sneakers",
+    "trainer",
+    "trainers",
+    "training",
+    "white",
+    "black",
+    "blue",
+    "navy",
+    "grey",
+    "gray",
+    "red",
+}
 
 
 def _model_tokens(model: str | None) -> list[str]:
     if not model:
         return []
-    return [token.lower() for token in model.replace("-", " ").split() if len(token) >= 3]
+    return [
+        token.lower()
+        for token in model.replace("-", " ").replace("'", " ").split()
+        if len(token) >= 3 and token.lower() not in GENERIC_MODEL_TOKENS
+    ]
 
 
 def text_relevance_score(candidate: ImageCandidate, manifest: RunManifest) -> int:
@@ -29,10 +57,7 @@ def text_relevance_score(candidate: ImageCandidate, manifest: RunManifest) -> in
     title = candidate.title or ""
     source_page_url = candidate.source_page_url or ""
     generic_title = title.lower().startswith(f"{candidate.platform} image for ")
-    search_page_source = any(
-        marker in source_page_url.lower()
-        for marker in ["/images/search", "/search?", "/search/", "catalogsearch", "wholesale?searchtext", "/s?k="]
-    )
+    search_page_source = is_search_page_source(candidate)
     trusted_parts = [candidate.image_url or ""]
     if not generic_title:
         trusted_parts.append(title)
@@ -47,7 +72,10 @@ def text_relevance_score(candidate: ImageCandidate, manifest: RunManifest) -> in
     if tokens and matched_tokens == len(tokens):
         score += 6
     elif matched_tokens:
-        score += min(matched_tokens * 2, 4)
+        if facts.sku:
+            score += min(matched_tokens * 2, 4)
+        else:
+            score += 4 if matched_tokens >= 2 else 1
     if facts.brand and facts.brand.lower() in text:
         score += 2
     return score
@@ -60,6 +88,17 @@ def is_textually_relevant(candidate: ImageCandidate, manifest: RunManifest) -> b
 def is_browser_asset(candidate: ImageCandidate) -> bool:
     url = (candidate.image_url or "").lower()
     return any(marker in url for marker in BROWSER_ASSET_MARKERS)
+
+
+def is_search_page_source(candidate: ImageCandidate) -> bool:
+    source_page_url = (candidate.source_page_url or "").lower()
+    return any(marker in source_page_url for marker in SEARCH_PAGE_MARKERS)
+
+
+def is_generic_search_candidate(candidate: ImageCandidate) -> bool:
+    title = (candidate.title or "").lower()
+    generic_title = title.startswith(f"{candidate.platform} image for ") or title.startswith("search results for ")
+    return generic_title or is_search_page_source(candidate)
 
 
 def has_rejected_status(candidate: ImageCandidate) -> bool:
@@ -187,10 +226,13 @@ async def download_and_process_one(
         visual_score = visual_similarity_score(reference_path, original_path)
         candidate.status_labels.append(f"text_score_{text_score}")
         candidate.status_labels.append(f"visual_score_{visual_score}")
+        generic_search_candidate = is_generic_search_candidate(candidate)
         strong_text_match = text_score >= 10
         balanced_match = text_score >= 4 and visual_score >= 35
         image_first_match = text_score >= 4 and visual_score >= 65
-        if not (strong_text_match or balanced_match or image_first_match):
+        generic_search_match = generic_search_candidate and text_score >= 4 and visual_score >= 82
+        non_generic_match = not generic_search_candidate and (strong_text_match or balanced_match or image_first_match)
+        if not (generic_search_match or non_generic_match):
             candidate.status_labels.append("visual_mismatch")
             manifest.logs.append(
                 f"{candidate.platform}: rejected image {original_path.name} text_score={text_score} visual_score={visual_score}"

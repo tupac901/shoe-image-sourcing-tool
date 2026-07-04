@@ -96,6 +96,39 @@ async def test_download_processing_rejects_bing_browser_asset(tmp_path):
     assert candidate.local_processed_path is None
 
 
+@pytest.mark.anyio
+async def test_download_processing_rejects_generic_search_result_without_visual_match(tmp_path):
+    manifest, run_dir = create_run(ProductFacts(brand="Nike", model="Air Monarch IV", sku="416355-102"), ["Nike shoe"], ["aliexpress"], tmp_path)
+    reference = run_dir / "input" / "reference.jpg"
+    shoe_like = Image.new("RGB", (400, 300), "white")
+    draw = ImageDraw.Draw(shoe_like)
+    draw.rectangle((30, 130, 370, 185), fill="white", outline="navy", width=6)
+    shoe_like.save(reference)
+
+    unrelated = run_dir / "originals" / "cartridge.jpg"
+    unrelated.parent.mkdir(parents=True, exist_ok=True)
+    image = Image.new("RGB", (400, 500), "gray")
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((80, 60, 320, 440), fill="slategray", outline="black", width=8)
+    draw.rectangle((125, 105, 275, 190), fill="red")
+    image.save(unrelated)
+
+    candidate = ImageCandidate(
+        id="generic-bad",
+        platform="aliexpress",
+        source_page_url="https://www.aliexpress.com/wholesale?SearchText=416355-102+Nike+Air+Monarch+IV",
+        image_url="https://example.com/416355-102-nike-air-monarch-iv.jpg",
+        title="aliexpress image for 416355-102 Nike Air Monarch IV product images",
+        local_original_path=unrelated.as_posix(),
+    )
+    manifest.candidates.append(candidate)
+    rejected = await download_and_process_candidates(manifest, run_dir, [candidate], {}, reference)
+
+    assert rejected == 1
+    assert "visual_mismatch" in candidate.status_labels
+    assert candidate.local_processed_path is None
+
+
 def test_prune_rejected_candidates_removes_bad_gallery_cards(tmp_path):
     manifest, _ = create_run(ProductFacts(brand="Nike"), ["Nike shoe"], ["bing_images"], tmp_path)
     good = ImageCandidate(id="good", platform="bing_images", source_page_url="https://example.com/good", image_url="https://example.com/good.jpg")
