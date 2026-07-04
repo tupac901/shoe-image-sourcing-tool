@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import html
+import json
 from pathlib import Path
+from urllib.parse import quote_plus
 
 import anyio
 import httpx
@@ -37,6 +41,11 @@ NON_PRODUCT_TITLE_MARKERS = (
     "tutorial",
     "review video",
 )
+FALLBACK_PLATFORM = "bing_downloader"
+FALLBACK_MIN_PROCESSED = 8
+FALLBACK_LIMIT_PER_QUERY = 12
+FALLBACK_MAX_QUERIES = 3
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 
 
 GENERIC_MODEL_TOKENS = {
@@ -147,6 +156,118 @@ def prune_rejected_candidates(manifest: RunManifest) -> int:
     return before - len(manifest.candidates)
 
 
+def processed_count(manifest: RunManifest) -> int:
+    return sum(1 for candidate in manifest.candidates if candidate.local_processed_path)
+
+
+def fallback_queries(manifest: RunManifest) -> list[str]:
+    facts = manifest.facts
+    exact_parts = [facts.sku, facts.brand, facts.model]
+    model_parts = [facts.brand, facts.model]
+    queries = [
+        " ".join(part.strip() for part in exact_parts if part and part.strip()),
+        " ".join(part.strip() for part in model_parts if part and part.strip()),
+        f"{facts.sku} shoe" if facts.sku else None,
+    ]
+    unique: list[str] = []
+    seen: set[str] = set()
+    for query in queries:
+        if not query:
+            continue
+        normalized = " ".join(query.split())
+        if len(normalized) < 4 or normalized.lower() in seen:
+            continue
+        seen.add(normalized.lower())
+        unique.append(normalized)
+    return unique[:FALLBACK_MAX_QUERIES]
+
+
+def download_bing_images(query: str, output_dir: Path, limit: int = FALLBACK_LIMIT_PER_QUERY) -> Path:
+    from better_bing_image_downloader import downloader
+
+    downloader(
+        query,
+        limit=limit,
+        output_dir=str(output_dir),
+        force_replace=True,
+        timeout=35,
+        verbose=False,
+        name="fallback",
+        max_workers=4,
+        min_dimension=320,
+    )
+    return output_dir / query
+
+
+def _manifest_sources(download_dir: Path) -> dict[str, str]:
+    manifest_path = download_dir / "_manifest.json"
+    if not manifest_path.exists():
+        return {}
+    try:
+        raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return {name: html.unescape(url) for name, url in raw.items() if isinstance(name, str) and isinstance(url, str)}
+
+
+def candidates_from_downloaded_images(download_dir: Path, query: str) -> list[ImageCandidate]:
+    sources = _manifest_sources(download_dir)
+    candidates: list[ImageCandidate] = []
+    if not download_dir.exists():
+        return candidates
+    for image_path in sorted(download_dir.iterdir()):
+        if not image_path.is_file() or image_path.suffix.lower() not in IMAGE_SUFFIXES:
+            continue
+        source_url = sources.get(image_path.name, "")
+        digest = hashlib.sha1(f"{query}:{image_path.name}:{source_url}".encode("utf-8")).hexdigest()[:16]
+        candidates.append(
+            ImageCandidate(
+                id=digest,
+                platform=FALLBACK_PLATFORM,
+                source_page_url=source_url or f"https://www.bing.com/images/search?q={quote_plus(query)}",
+                image_url=source_url,
+                title=f"{FALLBACK_PLATFORM} image for {query}",
+                local_original_path=image_path.as_posix(),
+                status_labels=["downloaded_image_fallback"],
+            )
+        )
+    return candidates
+
+
+async def run_image_downloader_fallback(
+    manifest: RunManifest,
+    run_dir: Path,
+    hashes: dict[str, str],
+    reference_path: Path | None,
+) -> None:
+    if processed_count(manifest) >= FALLBACK_MIN_PROCESSED:
+        return
+    queries = fallback_queries(manifest)
+    if not queries:
+        manifest.logs.append("image fallback skipped: no exact sku/model query")
+        return
+    manifest.logs.append(f"image fallback started, current usable images {processed_count(manifest)}")
+    fallback_root = run_dir / "originals" / FALLBACK_PLATFORM
+    for query in queries:
+        if processed_count(manifest) >= FALLBACK_MIN_PROCESSED:
+            break
+        try:
+            download_dir = await anyio.to_thread.run_sync(download_bing_images, query, fallback_root, FALLBACK_LIMIT_PER_QUERY)
+            candidates = candidates_from_downloaded_images(download_dir, query)
+            if not candidates:
+                manifest.logs.append(f"{FALLBACK_PLATFORM}: no downloaded images for {query}")
+                continue
+            manifest.candidates.extend(candidates)
+            manifest.logs.append(f"{FALLBACK_PLATFORM}: downloaded {len(candidates)} images for {query}")
+            rejected = await download_and_process_candidates(manifest, run_dir, candidates, hashes, reference_path)
+            removed = prune_rejected_candidates(manifest)
+            if rejected or removed:
+                manifest.logs.append(f"{FALLBACK_PLATFORM}: removed {removed or rejected} unusable or unrelated images")
+            save_manifest(manifest, run_dir)
+        except Exception as exc:
+            manifest.logs.append(f"{FALLBACK_PLATFORM}: failed for {query}: {exc}")
+
+
 async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_platform: int = 6) -> RunManifest:
     manifest.status = "running"
     manifest.logs.append("crawl started in fast background mode")
@@ -191,7 +312,7 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
                     for candidate in manifest.candidates
                     if candidate.platform == platform and candidate.local_processed_path
                 )
-                if len([candidate for candidate in manifest.candidates if candidate.local_processed_path]) >= MAX_IMAGES_PER_RUN:
+                if processed_count(manifest) >= MAX_IMAGES_PER_RUN:
                     manifest.logs.append("global image limit reached")
                     break
                 if platform_processed >= target_processed_per_platform:
@@ -201,6 +322,7 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
                 manifest.logs.append(f"{platform}: failed for {query}: {exc}")
         manifest.logs.append(f"{platform}: search step done, {platform_total} entries")
         save_manifest(manifest, run_dir)
+    await run_image_downloader_fallback(manifest, run_dir, hashes, reference_path)
     group_duplicates(manifest.candidates, hashes)
     manifest.status = "complete"
     manifest.logs.append("run complete")

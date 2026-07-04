@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from shoe_image_sourcing.crawler import is_textually_relevant, text_relevance_score
+from PIL import Image
+
+from shoe_image_sourcing.crawler import candidates_from_downloaded_images, fallback_queries, is_textually_relevant, text_relevance_score
 from shoe_image_sourcing.models import ImageCandidate, ProductFacts, RunManifest
 
 
@@ -34,3 +36,29 @@ def test_text_relevance_accepts_multiple_distinct_model_tokens_without_sku():
 
     assert text_relevance_score(candidate, manifest) >= 4
     assert is_textually_relevant(candidate, manifest)
+
+
+def test_fallback_queries_prioritize_sku_brand_model():
+    manifest = _manifest(ProductFacts(brand="Nike", model="Air Monarch IV", sku="416355-102", color="White Navy"))
+
+    assert fallback_queries(manifest) == [
+        "416355-102 Nike Air Monarch IV",
+        "Nike Air Monarch IV",
+        "416355-102 shoe",
+    ]
+
+
+def test_downloaded_image_candidates_use_local_files_and_manifest_sources(tmp_path):
+    download_dir = tmp_path / "416355-102 Nike Air Monarch IV"
+    download_dir.mkdir()
+    image_path = download_dir / "fallback_1.jpg"
+    Image.new("RGB", (640, 640), "white").save(image_path)
+    (download_dir / "_manifest.json").write_text('{"fallback_1.jpg": "https://example.com/product.jpg?x=1&amp;y=2"}', encoding="utf-8")
+
+    candidates = candidates_from_downloaded_images(download_dir, "416355-102 Nike Air Monarch IV")
+
+    assert len(candidates) == 1
+    assert candidates[0].platform == "bing_downloader"
+    assert candidates[0].local_original_path == image_path.as_posix()
+    assert candidates[0].image_url == "https://example.com/product.jpg?x=1&y=2"
+    assert "downloaded_image_fallback" in candidates[0].status_labels
