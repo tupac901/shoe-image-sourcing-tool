@@ -243,7 +243,7 @@ def candidates_from_downloaded_images(download_dir: Path, query: str) -> list[Im
                 platform=FALLBACK_PLATFORM,
                 source_page_url=source_url or f"https://www.bing.com/images/search?q={quote_plus(query)}",
                 image_url=source_url,
-                title=f"{FALLBACK_PLATFORM} image for {query}",
+                title=query,
                 local_original_path=image_path.as_posix(),
                 status_labels=["downloaded_image_fallback"],
             )
@@ -295,10 +295,15 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
         manifest.visual_profile = analyze_image(reference_path)
         manifest.logs.append("reference image analyzed for visual-first matching")
         save_manifest(manifest, run_dir)
+    await run_image_downloader_fallback(manifest, run_dir, hashes, reference_path)
+    save_manifest(manifest, run_dir)
 
     max_queries_per_platform = min(8, len(manifest.queries))
 
     for platform in manifest.platforms:
+        if processed_count(manifest) >= MAX_IMAGES_PER_RUN:
+            manifest.logs.append("global image limit reached before slow platform crawling")
+            break
         target_processed_per_platform = 12 if platform == "bing_images" else min(4, limit_per_platform)
         platform_total = 0
         platform_processed = 0
@@ -344,7 +349,6 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
                 manifest.logs.append(f"{platform}: failed for {query}: {exc}")
         manifest.logs.append(f"{platform}: search step done, {platform_total} entries")
         save_manifest(manifest, run_dir)
-    await run_image_downloader_fallback(manifest, run_dir, hashes, reference_path)
     group_duplicates(manifest.candidates, hashes)
     manifest.status = "complete"
     manifest.logs.append("run complete")
