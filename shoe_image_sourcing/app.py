@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
+from urllib.parse import quote_plus
+
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -10,11 +12,11 @@ from .config import DEFAULT_PLATFORMS, MAX_UPLOAD_MB, OPTIONAL_PLATFORMS, OUTPUT
 from .crawler import collect_candidates
 from .models import ProductFacts
 from .query import enrich_product_facts, generate_queries
-from .storage import create_run, load_manifest
+from .storage import create_run, load_manifest, save_manifest
 
 
 app = FastAPI(title="Shoe Image Sourcing Tool")
-APP_VERSION = "20260704-strict-generic-search-1"
+APP_VERSION = "20260704-visual-first-search-1"
 
 STATIC_DIR = Path(__file__).parent / "static"
 if STATIC_DIR.exists():
@@ -46,6 +48,7 @@ def version():
 
 @app.post("/api/runs")
 async def create_crawl_run(
+    request: Request,
     background_tasks: BackgroundTasks,
     image: UploadFile = File(...),
     product_text: str | None = Form(None),
@@ -81,6 +84,18 @@ async def create_crawl_run(
             if bytes_written > max_bytes:
                 raise HTTPException(status_code=413, detail=f"Upload exceeds {MAX_UPLOAD_MB} MB")
             handle.write(chunk)
+
+    public_image_url = str(request.base_url).rstrip("/") + "/" + input_path.as_posix()
+    encoded_image_url = quote_plus(public_image_url)
+    manifest.reverse_search_links = [
+        {"label": "Google Lens", "url": f"https://lens.google.com/uploadbyurl?url={encoded_image_url}"},
+        {
+            "label": "Bing Visual Search",
+            "url": f"https://www.bing.com/images/search?view=detailv2&iss=sbi&form=SBIIRP&sbisrc=UrlPaste&q=imgurl:{encoded_image_url}",
+        },
+        {"label": "Yandex Images", "url": f"https://yandex.com/images/search?rpt=imageview&url={encoded_image_url}"},
+    ]
+    save_manifest(manifest, run_dir)
 
     background_tasks.add_task(collect_candidates, manifest, run_dir)
     return {"run_id": manifest.run_id, "status": manifest.status, "queries": queries, "facts": facts.model_dump()}

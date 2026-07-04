@@ -11,7 +11,7 @@ const summary = document.querySelector("#summary");
 const submitButton = document.querySelector("#submit-button");
 
 const hiddenStatusLabels = new Set(["visual_mismatch", "download_failed", "search_page_only", "fetch_skipped_or_blocked"]);
-const internalStatusPattern = /^(text_score|visual_score)_/;
+const internalStatusPattern = /^(text_score|visual_score|profile_score)_/;
 
 const knownBrands = [
   "Nike",
@@ -51,7 +51,7 @@ function extractProductFacts(text) {
     findLabeled(text, ["官方货号", "货号", "款号", "SKU", "Article", "Артикул"]) ||
     (text.match(/\b([A-Z0-9]{3,}-[A-Z0-9]{2,})\b/i)?.[1] || "").toUpperCase();
   const color = findLabeled(text, ["Цвет модели", "颜色", "色号", "Color", "Цвет"]);
-  const labeledName = findLabeled(text, ["俄语名称", "品类", "名称", "产品名称", "Title", "Name"]);
+  const labeledName = findLabeled(text, ["俄语名称", "品类", "标题", "商品标题", "名称", "产品名称", "Title", "Name"]);
   let model = "";
   const source = labeledName || text.split(/\r?\n/).slice(0, 6).join(" ");
   if (brand) {
@@ -125,6 +125,15 @@ function displayTags(candidate) {
     .filter((tag) => !internalStatusPattern.test(tag));
 }
 
+function reverseSearchMarkup(run) {
+  const links = run.reverse_search_links || [];
+  if (!links.length) return "";
+  const anchors = links
+    .map((link) => `<a class="reverse-link" href="${link.url}" target="_blank" rel="noreferrer">${link.label}</a>`)
+    .join("");
+  return `<div class="reverse-links"><span>以图搜图</span>${anchors}</div>`;
+}
+
 function renderSummary(run) {
   const candidates = visibleCandidates(run);
   const withImages = candidates.filter((candidate) => candidate.local_processed_path || candidate.local_thumbnail_path || candidate.local_original_path || candidate.image_url).length;
@@ -132,6 +141,18 @@ function renderSummary(run) {
   const searchOnly = run.candidates.filter((candidate) => candidate.status_labels.includes("search_page_only")).length;
   summary.textContent = `图片 ${withImages} 张，已转 3:4 ${processed} 张，搜索页线索 ${searchOnly} 条`;
 }
+
+renderSummary = function (run) {
+  const candidates = visibleCandidates(run);
+  const withImages = candidates.filter((candidate) => candidate.local_processed_path || candidate.local_thumbnail_path || candidate.local_original_path || candidate.image_url).length;
+  const processed = candidates.filter((candidate) => candidate.local_processed_path).length;
+  const searchOnly = (run.candidates || []).filter((candidate) => (candidate.status_labels || []).includes("search_page_only")).length;
+  const profile = run.visual_profile || {};
+  const profileText = profile.foreground_aspect
+    ? ` | visual: aspect ${profile.foreground_aspect}, coverage ${profile.foreground_coverage}, edge ${profile.edge_density}`
+    : "";
+  summary.innerHTML = `图片 ${withImages} 张，已转 3:4 ${processed} 张，搜索页线索 ${searchOnly} 条${profileText}${reverseSearchMarkup(run)}`;
+};
 
 function imageMarkup(candidate) {
   const imagePath = candidate.local_processed_path || candidate.local_thumbnail_path || candidate.local_original_path;

@@ -52,3 +52,16 @@ def test_enrich_product_facts_from_pasted_product_text():
     assert facts.sku == "416355-102"
     assert facts.model == "Air Monarch IV"
     assert "белый" in facts.color
+
+
+def test_enrich_product_facts_reads_common_title_labels():
+    text = """
+商品标题：Nike Air Monarch IV 男士综合训练休闲老爹鞋，白藏蓝
+货号：416355-102
+颜色：白藏蓝
+"""
+    facts = enrich_product_facts(ProductFacts(product_text=text))
+
+    assert facts.brand == "Nike"
+    assert facts.sku == "416355-102"
+    assert facts.model == "Air Monarch IV"

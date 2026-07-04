@@ -174,6 +174,24 @@ def test_create_run_rejects_brand_only_search(tmp_path):
     assert "型号" in response.json()["detail"]
 
 
+def test_create_run_returns_reverse_search_links(tmp_path):
+    image_path = tmp_path / "shoe.jpg"
+    image = Image.new("RGB", (320, 240), "white")
+    image.save(image_path)
+    client = TestClient(app)
+    with image_path.open("rb") as handle:
+        response = client.post(
+            "/api/runs",
+            data={"brand": "Nike", "model": "Air Monarch IV", "sku": "416355-102", "platforms": ""},
+            files={"image": ("shoe.jpg", handle, "image/jpeg")},
+        )
+    assert response.status_code == 200
+    run_id = response.json()["run_id"]
+    run = client.get(f"/api/runs/{run_id}").json()
+    labels = {link["label"] for link in run["reverse_search_links"]}
+    assert {"Google Lens", "Bing Visual Search", "Yandex Images"} <= labels
+
+
 def test_bing_candidate_must_match_sku_or_model_text(tmp_path):
     manifest, _ = create_run(
         ProductFacts(brand="Nike", model="Air Monarch IV", sku="416355-102"),

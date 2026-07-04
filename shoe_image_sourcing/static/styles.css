@@ -173,6 +173,26 @@ pre {
   font-size: 13px;
 }
 
+.reverse-links {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.reverse-link {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 6px;
+  background: #111;
+  color: #fff;
+  padding: 6px 9px;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .gallery {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));

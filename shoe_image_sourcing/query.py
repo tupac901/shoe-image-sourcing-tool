@@ -26,7 +26,7 @@ SKU_PATTERNS = [
     re.compile(r"\b([A-Z0-9]{3,}-[A-Z0-9]{2,})\b", re.I),
 ]
 
-MODEL_LABEL_PATTERN = re.compile(r"(?:俄语名称|品类|名称|产品名称|title|name)\s*[:：]\s*(.+)", re.I)
+MODEL_LABEL_PATTERN = re.compile(r"(?:俄语名称|品类|标题|商品标题|名称|产品名称|title|name)\s*[:：]\s*(.+)", re.I)
 COLOR_LABEL_PATTERN = re.compile(r"(?:Цвет модели|颜色|色号|color|цвет)\s*[:：]\s*(.+)", re.I)
 
 

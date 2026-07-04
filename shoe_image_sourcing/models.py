@@ -54,4 +54,6 @@ class RunManifest(BaseModel):
     platforms: list[str]
     candidates: list[ImageCandidate] = Field(default_factory=list)
     logs: list[str] = Field(default_factory=list)
+    visual_profile: dict[str, object] = Field(default_factory=dict)
+    reverse_search_links: list[dict[str, str]] = Field(default_factory=list)
     status: Literal["created", "running", "complete", "failed"] = "created"

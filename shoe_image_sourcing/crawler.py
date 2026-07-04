@@ -13,6 +13,7 @@ from .image_processing import compute_phash, make_thumbnail, process_to_3x4
 from .models import ImageCandidate, RunManifest
 from .relevance import find_reference_image, visual_similarity_score
 from .storage import save_manifest
+from .visual_analysis import analyze_image, profile_similarity_score
 
 REJECTED_STATUS_LABELS = {"visual_mismatch", "download_failed"}
 BROWSER_ASSET_MARKERS = ("r.bing.com/rp/", "www.bing.com/rp/", "bing.com/rp/")
@@ -117,6 +118,10 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
     save_manifest(manifest, run_dir)
     hashes: dict[str, str] = {}
     reference_path = find_reference_image(run_dir)
+    if reference_path:
+        manifest.visual_profile = analyze_image(reference_path)
+        manifest.logs.append("reference image analyzed for visual-first matching")
+        save_manifest(manifest, run_dir)
 
     max_queries_per_platform = min(8, len(manifest.queries))
 
@@ -224,18 +229,20 @@ async def download_and_process_one(
             return False
         text_score = text_relevance_score(candidate, manifest)
         visual_score = visual_similarity_score(reference_path, original_path)
+        profile_score = profile_similarity_score(reference_path, original_path)
         candidate.status_labels.append(f"text_score_{text_score}")
         candidate.status_labels.append(f"visual_score_{visual_score}")
+        candidate.status_labels.append(f"profile_score_{profile_score}")
         generic_search_candidate = is_generic_search_candidate(candidate)
-        strong_text_match = text_score >= 10
-        balanced_match = text_score >= 4 and visual_score >= 35
-        image_first_match = text_score >= 4 and visual_score >= 65
-        generic_search_match = generic_search_candidate and text_score >= 4 and visual_score >= 82
+        strong_text_match = text_score >= 10 and (visual_score >= 20 or profile_score >= 45)
+        balanced_match = text_score >= 4 and visual_score >= 35 and profile_score >= 40
+        image_first_match = text_score >= 4 and visual_score >= 65 and profile_score >= 50
+        generic_search_match = generic_search_candidate and text_score >= 4 and visual_score >= 82 and profile_score >= 55
         non_generic_match = not generic_search_candidate and (strong_text_match or balanced_match or image_first_match)
         if not (generic_search_match or non_generic_match):
             candidate.status_labels.append("visual_mismatch")
             manifest.logs.append(
-                f"{candidate.platform}: rejected image {original_path.name} text_score={text_score} visual_score={visual_score}"
+                f"{candidate.platform}: rejected image {original_path.name} text_score={text_score} visual_score={visual_score} profile_score={profile_score}"
             )
             return False
         thumb_path = run_dir / "thumbnails" / f"{candidate.id}.jpg"
