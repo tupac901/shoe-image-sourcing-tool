@@ -237,9 +237,10 @@ async def download_and_process_one(
         strong_text_match = text_score >= 10 and (visual_score >= 20 or profile_score >= 45)
         balanced_match = text_score >= 4 and visual_score >= 35 and profile_score >= 40
         image_first_match = text_score >= 4 and visual_score >= 65 and profile_score >= 50
+        visual_only_match = visual_score >= 78 and profile_score >= 72
         generic_search_match = generic_search_candidate and text_score >= 4 and visual_score >= 82 and profile_score >= 55
         non_generic_match = not generic_search_candidate and (strong_text_match or balanced_match or image_first_match)
-        if not (generic_search_match or non_generic_match):
+        if not (generic_search_match or non_generic_match or visual_only_match):
             candidate.status_labels.append("visual_mismatch")
             manifest.logs.append(
                 f"{candidate.platform}: rejected image {original_path.name} text_score={text_score} visual_score={visual_score} profile_score={profile_score}"

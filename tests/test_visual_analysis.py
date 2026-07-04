@@ -1,7 +1,11 @@
 from pathlib import Path
 
+import pytest
 from PIL import Image, ImageDraw
 
+from shoe_image_sourcing.crawler import download_and_process_candidates
+from shoe_image_sourcing.models import ImageCandidate, ProductFacts
+from shoe_image_sourcing.storage import create_run
 from shoe_image_sourcing.visual_analysis import analyze_image, profile_similarity_score
 
 
@@ -32,3 +36,27 @@ def test_visual_profile_similarity_prefers_same_product_shape(tmp_path):
 
     assert analyze_image(reference)["foreground_aspect"]
     assert profile_similarity_score(reference, similar) > profile_similarity_score(reference, unrelated)
+
+
+@pytest.mark.anyio
+async def test_visual_only_match_keeps_high_similarity_candidate(tmp_path):
+    manifest, run_dir = create_run(ProductFacts(brand="Nike", model="Air Monarch IV", sku="416355-102"), ["Nike shoe"], ["bing_images"], tmp_path)
+    reference = run_dir / "input" / "reference.jpg"
+    candidate_path = run_dir / "originals" / "same-shape.jpg"
+    candidate_path.parent.mkdir(parents=True, exist_ok=True)
+    _shoe(reference)
+    _shoe(candidate_path)
+    candidate = ImageCandidate(
+        id="visual-only",
+        platform="bing_images",
+        source_page_url="https://example.com/gallery",
+        image_url="https://example.com/random-file.jpg",
+        title="untitled image",
+        local_original_path=candidate_path.as_posix(),
+    )
+    manifest.candidates.append(candidate)
+
+    rejected = await download_and_process_candidates(manifest, run_dir, [candidate], {}, reference)
+
+    assert rejected == 0
+    assert candidate.local_processed_path
