@@ -67,7 +67,21 @@ def test_downloaded_image_candidates_use_local_files_and_manifest_sources(tmp_pa
     assert candidates[0].platform == "bing_downloader"
     assert candidates[0].local_original_path == image_path.as_posix()
     assert candidates[0].image_url == "https://example.com/product.jpg?x=1&y=2"
+    assert candidates[0].title == "bing_downloader image for 416355-102 Nike Air Monarch IV"
     assert "downloaded_image_fallback" in candidates[0].status_labels
+
+
+def test_downloaded_image_candidate_does_not_get_text_score_from_query_title(tmp_path):
+    download_dir = tmp_path / "416355-102 Nike Air Monarch IV"
+    download_dir.mkdir()
+    image_path = download_dir / "fallback_1.jpg"
+    Image.new("RGB", (640, 640), "white").save(image_path)
+    (download_dir / "_manifest.json").write_text('{"fallback_1.jpg": "https://example.com/unrelated.jpg"}', encoding="utf-8")
+    manifest = _manifest(ProductFacts(brand="Nike", model="Air Monarch IV", sku="416355-102"))
+
+    candidate = candidates_from_downloaded_images(download_dir, "416355-102 Nike Air Monarch IV")[0]
+
+    assert text_relevance_score(candidate, manifest) == 0
 
 
 def test_match_accepts_high_profile_visual_candidate_without_text_match():
