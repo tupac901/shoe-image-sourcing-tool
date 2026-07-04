@@ -2,7 +2,13 @@ from datetime import datetime
 
 from PIL import Image
 
-from shoe_image_sourcing.crawler import candidates_from_downloaded_images, fallback_queries, is_textually_relevant, text_relevance_score
+from shoe_image_sourcing.crawler import (
+    candidates_from_downloaded_images,
+    fallback_queries,
+    is_textually_relevant,
+    should_accept_candidate_match,
+    text_relevance_score,
+)
 from shoe_image_sourcing.models import ImageCandidate, ProductFacts, RunManifest
 
 
@@ -62,3 +68,27 @@ def test_downloaded_image_candidates_use_local_files_and_manifest_sources(tmp_pa
     assert candidates[0].local_original_path == image_path.as_posix()
     assert candidates[0].image_url == "https://example.com/product.jpg?x=1&y=2"
     assert "downloaded_image_fallback" in candidates[0].status_labels
+
+
+def test_match_accepts_high_profile_visual_candidate_without_text_match():
+    candidate = ImageCandidate(
+        id="candidate",
+        platform="bing_images",
+        source_page_url="https://www.bing.com/images/search?q=416355-102",
+        image_url="https://example.com/white-shoe.jpg",
+        title="bing_images image for 416355-102 Nike Air Monarch IV",
+    )
+
+    assert should_accept_candidate_match(candidate, text_score=0, visual_score=63, profile_score=90)
+
+
+def test_match_rejects_weak_visual_candidate_without_text_match():
+    candidate = ImageCandidate(
+        id="candidate",
+        platform="bing_images",
+        source_page_url="https://www.bing.com/images/search?q=416355-102",
+        image_url="https://example.com/white-object.jpg",
+        title="bing_images image for 416355-102 Nike Air Monarch IV",
+    )
+
+    assert not should_accept_candidate_match(candidate, text_score=0, visual_score=40, profile_score=90)

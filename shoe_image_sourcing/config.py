@@ -24,6 +24,7 @@ DEFAULT_PLATFORMS = [
 ]
 
 OPTIONAL_PLATFORMS = [
+    PlatformConfig(name="yandex_reverse_image", label="Yandex Reverse Image", enabled_by_default=False, speed_tier="deep"),
     PlatformConfig(name="amazon", label="Amazon", enabled_by_default=False),
     PlatformConfig(name="aliexpress", label="AliExpress", enabled_by_default=False),
     PlatformConfig(name="farfetch", label="Farfetch", enabled_by_default=False),

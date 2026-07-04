@@ -11,6 +11,7 @@ import httpx
 from PIL import Image
 
 from .adapters.search_pages import SearchPageAdapter
+from .adapters.yandex_reverse_image import YandexReverseImageAdapter
 from .config import FAST_PLATFORM_TIMEOUT_SECONDS, IMAGE_DOWNLOAD_TIMEOUT_SECONDS, MAX_IMAGES_PER_RUN
 from .dedupe import group_duplicates
 from .image_processing import compute_phash, make_thumbnail, process_to_3x4
@@ -150,6 +151,22 @@ def has_rejected_status(candidate: ImageCandidate) -> bool:
     return any(label in REJECTED_STATUS_LABELS for label in candidate.status_labels)
 
 
+def should_accept_candidate_match(candidate: ImageCandidate, text_score: int, visual_score: int, profile_score: int) -> bool:
+    generic_search_candidate = is_generic_search_candidate(candidate)
+    strong_text_match = text_score >= 10 and (visual_score >= 20 or profile_score >= 45)
+    balanced_match = text_score >= 4 and visual_score >= 35 and profile_score >= 40
+    image_first_match = text_score >= 4 and visual_score >= 65 and profile_score >= 50
+    visual_only_match = not has_specific_candidate_text(candidate) and visual_score >= 78 and profile_score >= 72
+    visual_profile_match = visual_score >= 55 and profile_score >= 88
+    generic_search_match = generic_search_candidate and (
+        (text_score >= 4 and visual_score >= 82 and profile_score >= 55) or visual_profile_match
+    )
+    non_generic_match = not generic_search_candidate and (
+        strong_text_match or balanced_match or image_first_match or visual_profile_match
+    )
+    return generic_search_match or non_generic_match or visual_only_match
+
+
 def prune_rejected_candidates(manifest: RunManifest) -> int:
     before = len(manifest.candidates)
     manifest.candidates = [candidate for candidate in manifest.candidates if not has_rejected_status(candidate)]
@@ -285,9 +302,14 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
         target_processed_per_platform = 12 if platform == "bing_images" else min(4, limit_per_platform)
         platform_total = 0
         platform_processed = 0
-        for query in manifest.queries[:max_queries_per_platform]:
+        platform_queries = manifest.queries[:1] if platform == "yandex_reverse_image" else manifest.queries[:max_queries_per_platform]
+        for query in platform_queries:
             try:
-                adapter = SearchPageAdapter(platform)
+                adapter = (
+                    YandexReverseImageAdapter(reference_path)
+                    if platform == "yandex_reverse_image"
+                    else SearchPageAdapter(platform)
+                )
                 search_limit = 18 if platform == "bing_images" else limit_per_platform
                 candidates = await adapter.search(query, limit=search_limit, timeout=FAST_PLATFORM_TIMEOUT_SECONDS)
                 if platform == "bing_images":
@@ -394,14 +416,7 @@ async def download_and_process_one(
             candidate.status_labels.append("visual_mismatch")
             manifest.logs.append(f"{candidate.platform}: rejected non-product title {candidate.title}")
             return False
-        generic_search_candidate = is_generic_search_candidate(candidate)
-        strong_text_match = text_score >= 10 and (visual_score >= 20 or profile_score >= 45)
-        balanced_match = text_score >= 4 and visual_score >= 35 and profile_score >= 40
-        image_first_match = text_score >= 4 and visual_score >= 65 and profile_score >= 50
-        visual_only_match = not has_specific_candidate_text(candidate) and visual_score >= 78 and profile_score >= 72
-        generic_search_match = generic_search_candidate and text_score >= 4 and visual_score >= 82 and profile_score >= 55
-        non_generic_match = not generic_search_candidate and (strong_text_match or balanced_match or image_first_match)
-        if not (generic_search_match or non_generic_match or visual_only_match):
+        if not should_accept_candidate_match(candidate, text_score, visual_score, profile_score):
             candidate.status_labels.append("visual_mismatch")
             manifest.logs.append(
                 f"{candidate.platform}: rejected image {original_path.name} text_score={text_score} visual_score={visual_score} profile_score={profile_score}"

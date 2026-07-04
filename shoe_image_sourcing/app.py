@@ -16,7 +16,7 @@ from .storage import create_run, load_manifest, save_manifest
 
 
 app = FastAPI(title="Shoe Image Sourcing Tool")
-APP_VERSION = "20260704-bing-downloader-fallback-1"
+APP_VERSION = "20260704-visual-profile-match-1"
 
 STATIC_DIR = Path(__file__).parent / "static"
 if STATIC_DIR.exists():
