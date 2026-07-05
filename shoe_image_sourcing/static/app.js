@@ -9,6 +9,7 @@ const gallery = document.querySelector("#gallery");
 const runTitle = document.querySelector("#run-title");
 const summary = document.querySelector("#summary");
 const submitButton = document.querySelector("#submit-button");
+const notice = document.querySelector("#notice");
 
 const hiddenStatusLabels = new Set(["visual_mismatch", "download_failed", "search_page_only", "fetch_skipped_or_blocked"]);
 const internalStatusPattern = /^(text_score|visual_score|profile_score)_/;
@@ -151,8 +152,17 @@ renderSummary = function (run) {
   const profileText = profile.foreground_aspect
     ? ` | visual: aspect ${profile.foreground_aspect}, coverage ${profile.foreground_coverage}, edge ${profile.edge_density}`
     : "";
-  const notFound = run.status === "complete" && processed === 0 ? " | 未找到同款图片" : "";
-  summary.innerHTML = `图片 ${withImages} 张，已转 3:4 ${processed} 张，搜索页线索 ${searchOnly} 条${notFound}${profileText}${reverseSearchMarkup(run)}`;
+  summary.innerHTML = `图片 ${withImages} 张，已转 3:4 ${processed} 张，搜索页线索 ${searchOnly} 条${profileText}${reverseSearchMarkup(run)}`;
+  if (run.status === "complete" && processed === 0) {
+    notice.hidden = false;
+    notice.innerHTML = `
+      <strong>未找到同款图片</strong>
+      <span>当前平台没有命中与货号/实物图一致的产品，已过滤相似款和错款。</span>
+    `;
+  } else {
+    notice.hidden = true;
+    notice.textContent = "";
+  }
 };
 
 function imageMarkup(candidate) {
@@ -220,6 +230,8 @@ form.addEventListener("submit", async (event) => {
   if (!body.get("product_text")?.trim() && !body.get("model")?.trim() && !body.get("sku")?.trim() && !body.get("keywords")?.trim()) {
     runTitle.textContent = "信息不够";
     summary.textContent = "请至少粘贴产品信息，或填写型号、货号、补充关键词之一；只填 Nike 会搜到很多无关图片。";
+    notice.hidden = true;
+    notice.textContent = "";
     logs.textContent = "";
     gallery.innerHTML = "";
     return;
@@ -227,6 +239,8 @@ form.addEventListener("submit", async (event) => {
   body.set("platforms", selectedPlatforms());
   runTitle.textContent = "正在上传并创建任务...";
   summary.textContent = "Render 免费版冷启动时，首次请求可能需要几十秒。";
+  notice.hidden = true;
+  notice.textContent = "";
   logs.textContent = "";
   gallery.innerHTML = "";
   submitButton.disabled = true;
