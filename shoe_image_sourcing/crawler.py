@@ -318,7 +318,14 @@ def platform_queries_for_manifest(platform: str, manifest: RunManifest, max_quer
             return unique
         return manifest.queries[:1]
     if platform == "yandex_reverse_image":
-        return manifest.queries[:1]
+        if manifest.queries:
+            return manifest.queries[:1]
+        fallback = " ".join(
+            part.strip()
+            for part in [manifest.facts.sku, manifest.facts.brand, manifest.facts.model]
+            if part and part.strip()
+        )
+        return [fallback or "reference image"]
     return manifest.queries[:max_queries_per_platform]
 
 

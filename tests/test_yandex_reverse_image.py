@@ -8,7 +8,7 @@ from shoe_image_sourcing.adapters.yandex_reverse_image import (
     extract_yandex_reverse_search_url,
 )
 from shoe_image_sourcing.config import OPTIONAL_PLATFORMS
-from shoe_image_sourcing.crawler import collect_candidates
+from shoe_image_sourcing.crawler import collect_candidates, platform_queries_for_manifest
 from shoe_image_sourcing.models import ProductFacts, RunManifest
 
 
@@ -53,6 +53,18 @@ def test_extract_yandex_reverse_search_url_from_cbir_fields():
         "https://yandex.ru/images/search?"
         "rpt=imageview&cbir_id=12345%2Fabc&url=https%3A%2F%2Favatars.mds.yandex.net%2Fget-images-cbir%2Fabc%2Forig"
     )
+
+
+def test_yandex_reverse_runs_even_without_text_queries():
+    manifest = RunManifest(
+        run_id="test",
+        created_at=__import__("datetime").datetime.now(),
+        facts=ProductFacts(brand="Asics", sku="1012C008-103"),
+        queries=[],
+        platforms=["yandex_reverse_image"],
+    )
+
+    assert platform_queries_for_manifest("yandex_reverse_image", manifest, 0) == ["1012C008-103 Asics"]
 
 
 @pytest.mark.anyio
