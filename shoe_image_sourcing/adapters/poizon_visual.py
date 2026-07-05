@@ -30,6 +30,7 @@ query getProductList($search:String,$filters:ProductFiltersInput,$sort:ProductSo
 def extract_poizon_candidates(payload: dict[str, Any], query: str) -> list[ImageCandidate]:
     products = (((payload.get("data") or {}).get("searchProducts") or {}).get("data") or [])
     candidates: list[ImageCandidate] = []
+    query_has_sku_shape = any(ch.isdigit() for ch in query) and len("".join(ch for ch in query if ch.isalnum())) >= 6
     for product in products:
         product_id = str(product.get("id") or "")
         product_name = str(product.get("name") or "").strip()
@@ -56,7 +57,10 @@ def extract_poizon_candidates(payload: dict[str, Any], query: str) -> list[Image
                     source_page_url=product_url or "https://poizon.ru/cat/shoes",
                     image_url=image_url,
                     title=title or f"poizon_visual image for {query}",
-                    status_labels=["poizon_product_candidate"],
+                    status_labels=[
+                        "poizon_product_candidate",
+                        *(["poizon_sku_search_result"] if query_has_sku_shape else []),
+                    ],
                 )
             )
     return candidates

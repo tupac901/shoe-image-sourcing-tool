@@ -42,6 +42,29 @@ def test_extract_poizon_candidates_from_product_list_response():
     assert candidates[0].image_url == "https://img.poizon.ru/product-1.avif"
 
 
+def test_extract_poizon_candidates_marks_sku_search_results():
+    payload = {
+        "data": {
+            "searchProducts": {
+                "data": [
+                    {
+                        "id": "1012c008-103",
+                        "name": "ASICS sneaker",
+                        "brandLabel": "Asics",
+                        "url": "/product/1012c008-103",
+                        "images": [{"url": "https://img.poizon.ru/asics.avif"}],
+                    }
+                ]
+            }
+        }
+    }
+
+    candidates = extract_poizon_candidates(payload, "1012C008-103")
+
+    assert candidates[0].source_page_url == "https://poizon.ru/product/1012c008-103"
+    assert "poizon_sku_search_result" in candidates[0].status_labels
+
+
 @pytest.mark.anyio
 async def test_poizon_visual_adapter_search_uses_graphql(monkeypatch):
     payload = {

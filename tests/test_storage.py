@@ -39,12 +39,25 @@ def test_manifest_round_trip(tmp_path):
     assert not (run_dir / "manifest.json.tmp").exists()
 
 
-def test_poizon_visual_auto_adds_yandex_reverse_for_image_first(tmp_path):
+def test_poizon_visual_does_not_auto_add_yandex_reverse(tmp_path):
     manifest, _ = create_run(ProductFacts(brand="Asics"), ["Asics shoe"], ["poizon_visual"], tmp_path)
 
     ensure_image_first_platforms(manifest, has_reference_image=True)
 
-    assert manifest.platforms[:2] == ["yandex_reverse_image", "poizon_visual"]
+    assert manifest.platforms == ["poizon_visual"]
+
+
+def test_selected_yandex_reverse_runs_before_poizon_visual(tmp_path):
+    manifest, _ = create_run(
+        ProductFacts(brand="Asics"),
+        ["Asics shoe"],
+        ["poizon_visual", "yandex_reverse_image"],
+        tmp_path,
+    )
+
+    ensure_image_first_platforms(manifest, has_reference_image=True)
+
+    assert manifest.platforms == ["yandex_reverse_image", "poizon_visual"]
 
 
 def test_image_first_skips_bing_fallback_after_reverse_matches(tmp_path):

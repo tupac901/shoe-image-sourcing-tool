@@ -158,6 +158,10 @@ def is_visual_fallback_candidate(candidate: ImageCandidate) -> bool:
     return "visual_fallback_without_sku" in candidate.status_labels
 
 
+def is_poizon_sku_search_result(candidate: ImageCandidate) -> bool:
+    return "poizon_sku_search_result" in candidate.status_labels
+
+
 def _compact(value: str | None) -> str:
     return "".join(ch for ch in (value or "").lower() if ch.isalnum())
 
@@ -189,7 +193,14 @@ def should_accept_candidate_for_manifest(
         if manifest.facts.sku and not has_exact_sku_match(candidate, manifest) and not is_visual_fallback_candidate(candidate):
             return False
         if is_visual_fallback_candidate(candidate):
+            if is_poizon_sku_search_result(candidate):
+                return (visual_score >= 78 and profile_score >= 50) or (visual_score >= 90 and profile_score >= 45)
             return feature_score >= 35 and visual_score >= 88 and profile_score >= 72
+        if has_exact_sku_match(candidate, manifest):
+            return (
+                feature_score >= 25
+                and ((visual_score >= 82 and profile_score >= 72) or (visual_score >= 70 and profile_score >= 84))
+            ) or (visual_score >= 78 and profile_score >= 50) or (visual_score >= 90 and profile_score >= 45)
         return feature_score >= 25 and ((visual_score >= 82 and profile_score >= 72) or (visual_score >= 70 and profile_score >= 84))
     return should_accept_candidate_match(candidate, text_score, visual_score, profile_score)
 
@@ -269,7 +280,7 @@ def image_first_processed_count(manifest: RunManifest) -> int:
 
 
 def ensure_image_first_platforms(manifest: RunManifest, has_reference_image: bool) -> None:
-    if not has_reference_image or "poizon_visual" not in manifest.platforms:
+    if not has_reference_image or "yandex_reverse_image" not in manifest.platforms:
         return
     manifest.platforms = [platform for platform in manifest.platforms if platform != "yandex_reverse_image"]
     manifest.platforms.insert(0, "yandex_reverse_image")
