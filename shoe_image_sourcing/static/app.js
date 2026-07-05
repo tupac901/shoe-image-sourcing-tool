@@ -153,7 +153,14 @@ renderSummary = function (run) {
     ? ` | visual: aspect ${profile.foreground_aspect}, coverage ${profile.foreground_coverage}, edge ${profile.edge_density}`
     : "";
   summary.innerHTML = `图片 ${withImages} 张，已转 3:4 ${processed} 张，搜索页线索 ${searchOnly} 条${profileText}${reverseSearchMarkup(run)}`;
-  if (run.status === "complete" && processed === 0) {
+  if (run.status === "failed") {
+    notice.hidden = false;
+    const lastLog = (run.logs || []).slice().reverse().find((log) => log.includes("failed") || log.includes("失败")) || "请查看下方日志";
+    notice.innerHTML = `
+      <strong>任务失败</strong>
+      <span>${lastLog}</span>
+    `;
+  } else if (run.status === "complete" && processed === 0) {
     notice.hidden = false;
     notice.innerHTML = `
       <strong>未找到同款图片</strong>
@@ -190,6 +197,20 @@ function actionMarkup(candidate) {
 
 async function pollRun(runId) {
   const res = await fetch(`/api/runs/${runId}`);
+  if (!res.ok) {
+    runTitle.textContent = `任务 ${runId} · failed`;
+    summary.textContent = "任务状态读取失败";
+    notice.hidden = false;
+    notice.innerHTML = `
+      <strong>任务状态丢失</strong>
+      <span>Render 免费实例重启或重新部署后，本次临时任务文件可能已被清空。请重新提交一次。</span>
+    `;
+    logs.textContent = `GET /api/runs/${runId} returned ${res.status}`;
+    gallery.innerHTML = "";
+    submitButton.disabled = false;
+    submitButton.textContent = "开始采集";
+    return;
+  }
   const run = await res.json();
   runTitle.textContent = `任务 ${run.run_id} · ${run.status}`;
   renderSummary(run);

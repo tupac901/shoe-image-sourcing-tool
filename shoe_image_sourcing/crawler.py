@@ -324,72 +324,77 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
     manifest.status = "running"
     manifest.logs.append("crawl started in fast background mode")
     save_manifest(manifest, run_dir)
-    hashes: dict[str, str] = {}
-    reference_path = find_reference_image(run_dir)
-    if reference_path:
-        manifest.visual_profile = analyze_image(reference_path)
-        manifest.logs.append("reference image analyzed for visual-first matching")
-        save_manifest(manifest, run_dir)
+    try:
+        hashes: dict[str, str] = {}
+        reference_path = find_reference_image(run_dir)
+        if reference_path:
+            manifest.visual_profile = analyze_image(reference_path)
+            manifest.logs.append("reference image analyzed for visual-first matching")
+            save_manifest(manifest, run_dir)
 
-    max_queries_per_platform = min(8, len(manifest.queries))
+        max_queries_per_platform = min(8, len(manifest.queries))
 
-    for platform in manifest.platforms:
-        if processed_count(manifest) >= MAX_IMAGES_PER_RUN:
-            manifest.logs.append("global image limit reached before slow platform crawling")
-            break
-        target_processed_per_platform = 12 if platform == "bing_images" else min(4, limit_per_platform)
-        platform_total = 0
-        platform_processed = 0
-        platform_queries = manifest.queries[:1] if platform in {"yandex_reverse_image", "poizon_visual"} else manifest.queries[:max_queries_per_platform]
-        for query in platform_queries:
-            try:
-                if platform == "yandex_reverse_image":
-                    adapter = YandexReverseImageAdapter(reference_path)
-                elif platform == "poizon_visual":
-                    adapter = PoizonVisualAdapter()
-                else:
-                    adapter = SearchPageAdapter(platform)
-                search_limit = 18 if platform == "bing_images" else limit_per_platform
-                candidates = await adapter.search(query, limit=search_limit, timeout=FAST_PLATFORM_TIMEOUT_SECONDS)
-                if platform == "bing_images":
-                    candidates = sorted(candidates, key=lambda candidate: text_relevance_score(candidate, manifest), reverse=True)
-                if not any(candidate.image_url or candidate.local_original_path for candidate in candidates):
-                    manifest.logs.append(f"{platform}: search-page only for {query}, skipped gallery placeholders")
+        for platform in manifest.platforms:
+            if processed_count(manifest) >= MAX_IMAGES_PER_RUN:
+                manifest.logs.append("global image limit reached before slow platform crawling")
+                break
+            target_processed_per_platform = 12 if platform == "bing_images" else min(4, limit_per_platform)
+            platform_total = 0
+            platform_processed = 0
+            platform_queries = manifest.queries[:1] if platform in {"yandex_reverse_image", "poizon_visual"} else manifest.queries[:max_queries_per_platform]
+            for query in platform_queries:
+                try:
+                    if platform == "yandex_reverse_image":
+                        adapter = YandexReverseImageAdapter(reference_path)
+                    elif platform == "poizon_visual":
+                        adapter = PoizonVisualAdapter()
+                    else:
+                        adapter = SearchPageAdapter(platform)
+                    search_limit = 18 if platform == "bing_images" else limit_per_platform
+                    candidates = await adapter.search(query, limit=search_limit, timeout=FAST_PLATFORM_TIMEOUT_SECONDS)
+                    if platform == "bing_images":
+                        candidates = sorted(candidates, key=lambda candidate: text_relevance_score(candidate, manifest), reverse=True)
+                    if not any(candidate.image_url or candidate.local_original_path for candidate in candidates):
+                        manifest.logs.append(f"{platform}: search-page only for {query}, skipped gallery placeholders")
+                        platform_total += len(candidates)
+                        continue
+                    for candidate in candidates:
+                        if platform == "ozon" and "competitor_reference_only" not in candidate.status_labels:
+                            candidate.status_labels.append("competitor_reference_only")
+                    manifest.candidates.extend(candidates)
                     platform_total += len(candidates)
-                    continue
-                for candidate in candidates:
-                    if platform == "ozon" and "competitor_reference_only" not in candidate.status_labels:
-                        candidate.status_labels.append("competitor_reference_only")
-                manifest.candidates.extend(candidates)
-                platform_total += len(candidates)
-                manifest.logs.append(f"{platform}: collected {len(candidates)} entries for {query}")
-                rejected = await download_and_process_candidates(manifest, run_dir, candidates, hashes, reference_path)
-                removed = prune_rejected_candidates(manifest)
-                if rejected or removed:
-                    manifest.logs.append(f"{platform}: removed {removed or rejected} unusable or unrelated images")
-                    save_manifest(manifest, run_dir)
-                platform_processed = sum(
-                    1
-                    for candidate in manifest.candidates
-                    if candidate.platform == platform and candidate.local_processed_path
-                )
-                if processed_count(manifest) >= MAX_IMAGES_PER_RUN:
-                    manifest.logs.append("global image limit reached")
-                    break
-                if platform_processed >= target_processed_per_platform:
-                    manifest.logs.append(f"{platform}: enough usable images, stop after {platform_processed} processed")
-                    break
-            except Exception as exc:
-                manifest.logs.append(f"{platform}: failed for {query}: {exc}")
-        manifest.logs.append(f"{platform}: search step done, {platform_total} entries")
+                    manifest.logs.append(f"{platform}: collected {len(candidates)} entries for {query}")
+                    rejected = await download_and_process_candidates(manifest, run_dir, candidates, hashes, reference_path)
+                    removed = prune_rejected_candidates(manifest)
+                    if rejected or removed:
+                        manifest.logs.append(f"{platform}: removed {removed or rejected} unusable or unrelated images")
+                        save_manifest(manifest, run_dir)
+                    platform_processed = sum(
+                        1
+                        for candidate in manifest.candidates
+                        if candidate.platform == platform and candidate.local_processed_path
+                    )
+                    if processed_count(manifest) >= MAX_IMAGES_PER_RUN:
+                        manifest.logs.append("global image limit reached")
+                        break
+                    if platform_processed >= target_processed_per_platform:
+                        manifest.logs.append(f"{platform}: enough usable images, stop after {platform_processed} processed")
+                        break
+                except Exception as exc:
+                    manifest.logs.append(f"{platform}: failed for {query}: {exc}")
+            manifest.logs.append(f"{platform}: search step done, {platform_total} entries")
+            save_manifest(manifest, run_dir)
+        await run_image_downloader_fallback(manifest, run_dir, hashes, reference_path)
+        group_duplicates(manifest.candidates, hashes)
+        manifest.status = "complete"
+        if processed_count(manifest) == 0:
+            manifest.logs.append("no exact product image found")
+        manifest.logs.append("run complete")
         save_manifest(manifest, run_dir)
-    await run_image_downloader_fallback(manifest, run_dir, hashes, reference_path)
-    group_duplicates(manifest.candidates, hashes)
-    manifest.status = "complete"
-    if processed_count(manifest) == 0:
-        manifest.logs.append("no exact product image found")
-    manifest.logs.append("run complete")
-    save_manifest(manifest, run_dir)
+    except Exception as exc:
+        manifest.status = "failed"
+        manifest.logs.append(f"run failed: {exc}")
+        save_manifest(manifest, run_dir)
     return manifest
 
 

@@ -40,6 +40,25 @@ async def test_collect_candidates_marks_ozon_reference(tmp_path):
 
 
 @pytest.mark.anyio
+async def test_collect_candidates_marks_failed_when_background_step_crashes(monkeypatch, tmp_path):
+    manifest, run_dir = create_run(ProductFacts(brand="Asics", model="Jog 100S"), ["Asics Jog 100S"], ["poizon_visual"], tmp_path)
+    reference = run_dir / "input" / "reference.jpg"
+    Image.new("RGB", (320, 240), "white").save(reference)
+
+    def broken_analysis(_path):
+        raise RuntimeError("image decoder crashed")
+
+    monkeypatch.setattr("shoe_image_sourcing.crawler.analyze_image", broken_analysis)
+
+    result = await collect_candidates(manifest, run_dir)
+    loaded = load_manifest(run_dir)
+
+    assert result.status == "failed"
+    assert loaded.status == "failed"
+    assert any("run failed: image decoder crashed" in log for log in loaded.logs)
+
+
+@pytest.mark.anyio
 async def test_download_processing_rejects_visual_mismatch(tmp_path):
     manifest, run_dir = create_run(ProductFacts(brand="Nike", model="Air Monarch IV"), ["Nike shoe"], ["bing_images"], tmp_path)
     reference = run_dir / "input" / "reference.jpg"
