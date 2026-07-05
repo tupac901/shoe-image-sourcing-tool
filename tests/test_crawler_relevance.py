@@ -137,6 +137,34 @@ def test_poizon_candidate_accepts_exact_sku_match():
     assert should_accept_candidate_for_manifest(candidate, manifest, text_score=16, visual_score=70, profile_score=88)
 
 
+def test_poizon_exact_sku_still_requires_visual_match():
+    manifest = _manifest(ProductFacts(brand="Asics", model="Novablast 6", sku="1012C008-103"))
+    candidate = ImageCandidate(
+        id="candidate",
+        platform="poizon_visual",
+        source_page_url="https://poizon.ru/product/1012c008-103",
+        image_url="https://static.poizon.ru/wrong-color.jpg",
+        title="ASICS Novablast 6 1012C008-103 Red | Asics | 11875 ₽",
+    )
+
+    assert not should_accept_candidate_for_manifest(candidate, manifest, text_score=16, visual_score=55, profile_score=65)
+
+
+def test_poizon_visual_fallback_requires_strong_visual_match():
+    manifest = _manifest(ProductFacts(brand="Asics", model="Gel NYC", sku="1203A759-104"))
+    candidate = ImageCandidate(
+        id="candidate",
+        platform="poizon_visual",
+        source_page_url="https://poizon.ru/product/no-sku",
+        image_url="https://static.poizon.ru/similar-color.jpg",
+        title="ASICS similar sneaker | Asics | 8721 ₽",
+        status_labels=["visual_fallback_without_sku"],
+    )
+
+    assert not should_accept_candidate_for_manifest(candidate, manifest, text_score=4, visual_score=93, profile_score=88)
+    assert should_accept_candidate_for_manifest(candidate, manifest, text_score=4, visual_score=96, profile_score=90)
+
+
 def test_poizon_candidates_without_exact_sku_are_filtered_before_download():
     manifest = _manifest(ProductFacts(brand="Asics", model="Jog 100S", sku="1201A967-100"))
     exact = ImageCandidate(

@@ -182,13 +182,12 @@ def should_accept_candidate_for_manifest(
     visual_score: int,
     profile_score: int,
 ) -> bool:
-    if (
-        candidate.platform == "poizon_visual"
-        and manifest.facts.sku
-        and not has_exact_sku_match(candidate, manifest)
-        and not is_visual_fallback_candidate(candidate)
-    ):
-        return False
+    if candidate.platform == "poizon_visual":
+        if manifest.facts.sku and not has_exact_sku_match(candidate, manifest) and not is_visual_fallback_candidate(candidate):
+            return False
+        if is_visual_fallback_candidate(candidate):
+            return visual_score >= 96 and profile_score >= 90
+        return (visual_score >= 82 and profile_score >= 78) or (visual_score >= 70 and profile_score >= 88)
     return should_accept_candidate_match(candidate, text_score, visual_score, profile_score)
 
 

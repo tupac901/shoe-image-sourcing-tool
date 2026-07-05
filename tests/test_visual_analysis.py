@@ -18,6 +18,15 @@ def _shoe(path: Path, accent: str = "navy") -> None:
     image.save(path)
 
 
+def _colored_shoe(path: Path, body: str, accent: str) -> None:
+    image = Image.new("RGB", (768, 492), "white")
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((80, 210, 680, 310), fill=body, outline=accent, width=8)
+    draw.line((240, 220, 520, 300), fill=accent, width=12)
+    draw.rectangle((480, 150, 640, 230), fill=body, outline=accent, width=6)
+    image.save(path)
+
+
 def _box(path: Path) -> None:
     image = Image.new("RGB", (600, 450), "gray")
     draw = ImageDraw.Draw(image)
@@ -36,6 +45,23 @@ def test_visual_profile_similarity_prefers_same_product_shape(tmp_path):
 
     assert analyze_image(reference)["foreground_aspect"]
     assert profile_similarity_score(reference, similar) > profile_similarity_score(reference, unrelated)
+
+
+def test_visual_profile_similarity_penalizes_foreground_color_mismatch(tmp_path):
+    reference = tmp_path / "white-black.jpg"
+    same = tmp_path / "white-black-same.jpg"
+    pink = tmp_path / "pink-gray.jpg"
+    _colored_shoe(reference, body="white", accent="black")
+    _colored_shoe(same, body="white", accent="black")
+    _colored_shoe(pink, body="pink", accent="gray")
+
+    profile = analyze_image(reference)
+
+    assert "foreground_r" in profile
+    assert "pink_ratio" in profile
+    assert "dark_ratio" in profile
+    assert profile_similarity_score(reference, same) > 90
+    assert profile_similarity_score(reference, pink) < 86
 
 
 @pytest.mark.anyio
