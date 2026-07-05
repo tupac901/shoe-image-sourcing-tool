@@ -51,6 +51,7 @@ IMAGE_FIRST_MIN_PROCESSED = 3
 FALLBACK_LIMIT_PER_QUERY = 12
 FALLBACK_MAX_QUERIES = 3
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".avif"}
+POIZON_VISUAL_HINT_TIMEOUT_SECONDS = 15
 VISUAL_HINT_STOP_TOKENS = {
     "ipad",
     "upload",
@@ -183,6 +184,10 @@ def is_poizon_sku_search_result(candidate: ImageCandidate) -> bool:
     return "poizon_sku_search_result" in candidate.status_labels
 
 
+def is_poizon_visual_hint_result(candidate: ImageCandidate) -> bool:
+    return "poizon_visual_hint_result" in candidate.status_labels
+
+
 def _compact(value: str | None) -> str:
     return "".join(ch for ch in (value or "").lower() if ch.isalnum())
 
@@ -211,10 +216,13 @@ def should_accept_candidate_for_manifest(
     feature_score: int = 50,
 ) -> bool:
     if candidate.platform == "poizon_visual":
-        has_manifest_sku = bool(_compact(manifest.facts.sku))
+        image_only_result = is_poizon_visual_hint_result(candidate)
+        has_manifest_sku = bool(_compact(manifest.facts.sku)) and not image_only_result
         exact_sku_match = has_manifest_sku and has_exact_sku_match(candidate, manifest)
         if has_manifest_sku and not exact_sku_match and not is_visual_fallback_candidate(candidate):
             return False
+        if image_only_result:
+            return feature_score >= 18 and visual_score >= 70 and profile_score >= 45
         if is_visual_fallback_candidate(candidate):
             if is_poizon_sku_search_result(candidate):
                 return (visual_score >= 78 and profile_score >= 50) or (visual_score >= 90 and profile_score >= 45)
@@ -237,6 +245,8 @@ def filter_candidates_for_manifest(
         return candidates, 0
     poizon_candidates = [candidate for candidate in candidates if candidate.platform == "poizon_visual"]
     if not poizon_candidates:
+        return candidates, 0
+    if any(is_poizon_visual_hint_result(candidate) for candidate in poizon_candidates):
         return candidates, 0
     exact_poizon = [candidate for candidate in poizon_candidates if has_exact_sku_match(candidate, manifest)]
     if exact_poizon:
@@ -381,44 +391,7 @@ def poizon_visual_hint_queries(candidates: list[ImageCandidate], brand: str | No
 
 def platform_queries_for_manifest(platform: str, manifest: RunManifest, max_queries_per_platform: int) -> list[str]:
     if platform == "poizon_visual":
-        sku = (manifest.facts.sku or "").strip()
-        if sku:
-            brand_sku = " ".join(part for part in [manifest.facts.brand, sku] if part)
-            queries = [sku, brand_sku]
-            unique: list[str] = []
-            seen: set[str] = set()
-            for query in queries:
-                normalized = " ".join(query.split())
-                if normalized.lower() in seen:
-                    continue
-                seen.add(normalized.lower())
-                unique.append(normalized)
-            return unique
-        facts = manifest.facts
-        query_candidates = [
-            " ".join(part for part in [facts.brand, facts.keywords] if part),
-            " ".join(part for part in [facts.brand, facts.color, facts.keywords] if part),
-            " ".join(part for part in [facts.brand, facts.model] if part),
-            " ".join(part for part in [facts.brand, facts.model, facts.color] if part),
-            *[
-                query
-                for query in manifest.queries
-                if not query.lower().endswith(("product images", "official product photos"))
-            ],
-        ]
-        unique: list[str] = []
-        seen: set[str] = set()
-        for query in query_candidates:
-            normalized = " ".join((query or "").split())
-            if len(normalized) < 4 or normalized.lower() in seen:
-                continue
-            if facts.brand and normalized.lower() == facts.brand.lower():
-                continue
-            seen.add(normalized.lower())
-            unique.append(normalized)
-            if len(unique) >= max(1, min(3, max_queries_per_platform or 3)):
-                break
-        return unique or manifest.queries[:1]
+        return []
     if platform == "yandex_reverse_image":
         if manifest.queries:
             return manifest.queries[:1]
@@ -538,11 +511,11 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
 
         max_queries_per_platform = min(8, len(manifest.queries))
         poizon_visual_hints: list[str] = []
-        if reference_path and "poizon_visual" in manifest.platforms and not manifest.facts.sku:
+        if reference_path and "poizon_visual" in manifest.platforms:
             hint_candidates = await YandexReverseImageAdapter(reference_path).search(
                 "reference image",
                 limit=6,
-                timeout=FAST_PLATFORM_TIMEOUT_SECONDS,
+                timeout=POIZON_VISUAL_HINT_TIMEOUT_SECONDS,
             )
             poizon_visual_hints = poizon_visual_hint_queries(hint_candidates, manifest.facts.brand)
             if poizon_visual_hints:
@@ -559,6 +532,11 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
             platform_queries = platform_queries_for_manifest(platform, manifest, max_queries_per_platform)
             if platform == "poizon_visual" and poizon_visual_hints:
                 platform_queries = [*poizon_visual_hints, *platform_queries]
+            if platform == "poizon_visual" and not platform_queries:
+                manifest.logs.append("poizon_visual: no image-derived query found, skipped text/model/sku fallback")
+                manifest.logs.append(f"{platform}: search step done, 0 entries")
+                save_manifest(manifest, run_dir)
+                continue
             for query in platform_queries:
                 try:
                     if platform == "yandex_reverse_image":
@@ -569,6 +547,10 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
                         adapter = SearchPageAdapter(platform)
                     search_limit = 18 if platform == "bing_images" else limit_per_platform
                     candidates = await adapter.search(query, limit=search_limit, timeout=FAST_PLATFORM_TIMEOUT_SECONDS)
+                    if platform == "poizon_visual" and query in poizon_visual_hints:
+                        for candidate in candidates:
+                            if "poizon_visual_hint_result" not in candidate.status_labels:
+                                candidate.status_labels.append("poizon_visual_hint_result")
                     if platform == "bing_images":
                         candidates = sorted(candidates, key=lambda candidate: text_relevance_score(candidate, manifest), reverse=True)
                     visual_fallback_limit = 3 if platform == "poizon_visual" else 0
@@ -671,6 +653,7 @@ async def download_and_process_one(
             and manifest.facts.sku
             and not has_exact_sku_match(candidate, manifest)
             and not is_visual_fallback_candidate(candidate)
+            and not is_poizon_visual_hint_result(candidate)
         ):
             candidate.status_labels.append("visual_mismatch")
             candidate.status_labels.append("sku_mismatch")

@@ -1,9 +1,13 @@
 from datetime import datetime
 
+import httpx
+import pytest
 from PIL import Image
 
+import shoe_image_sourcing.crawler as crawler
 from shoe_image_sourcing.crawler import (
     candidates_from_downloaded_images,
+    download_and_process_one,
     fallback_queries,
     filter_candidates_for_manifest,
     is_textually_relevant,
@@ -270,6 +274,74 @@ def test_poizon_candidates_without_exact_sku_are_filtered_before_download():
     assert removed == 1
 
 
+def test_poizon_visual_hint_candidates_ignore_wrong_user_sku_before_download():
+    manifest = _manifest(ProductFacts(brand="Asics", model="GEL-KAYANO 14", sku="1203A161-100"))
+    candidate = ImageCandidate(
+        id="candidate",
+        platform="poizon_visual",
+        source_page_url="https://poizon.ru/product/1201a967-100",
+        image_url="https://static.poizon.ru/jog-100s.jpg",
+        title="Asics Jog 100S 2E Wide 'White Black' | Asics | 5877 ₽",
+        status_labels=["poizon_visual_hint_result"],
+    )
+
+    kept, removed = filter_candidates_for_manifest([candidate], manifest)
+
+    assert kept == [candidate]
+    assert removed == 0
+
+
+def test_poizon_visual_hint_match_ignores_wrong_user_sku():
+    manifest = _manifest(ProductFacts(brand="Asics", model="GEL-KAYANO 14", sku="1203A161-100"))
+    candidate = ImageCandidate(
+        id="candidate",
+        platform="poizon_visual",
+        source_page_url="https://poizon.ru/product/1201a967-100",
+        image_url="https://static.poizon.ru/jog-100s.jpg",
+        title="Asics Jog 100S 2E Wide 'White Black' | Asics | 5877 ₽",
+        status_labels=["poizon_visual_hint_result"],
+    )
+
+    assert should_accept_candidate_for_manifest(
+        candidate,
+        manifest,
+        text_score=0,
+        visual_score=100,
+        profile_score=100,
+        feature_score=74,
+    )
+
+
+@pytest.mark.anyio
+async def test_poizon_visual_hint_download_processing_ignores_wrong_user_sku(tmp_path, monkeypatch):
+    monkeypatch.setattr(crawler, "visual_similarity_score", lambda reference, candidate: 100)
+    monkeypatch.setattr(crawler, "profile_similarity_score", lambda reference, candidate: 100)
+    monkeypatch.setattr(crawler, "orb_similarity_score", lambda reference, candidate: 74)
+    manifest = _manifest(ProductFacts(brand="Asics", model="GEL-KAYANO 14", sku="1203A161-100"))
+    reference_path = tmp_path / "reference.jpg"
+    Image.new("RGB", (640, 640), "white").save(reference_path)
+    candidate_path = tmp_path / "candidate.jpg"
+    Image.new("RGB", (640, 640), "white").save(candidate_path)
+    candidate = ImageCandidate(
+        id="candidate",
+        platform="poizon_visual",
+        source_page_url="https://poizon.ru/product/1201a967-100",
+        image_url="https://static.poizon.ru/jog-100s.jpg",
+        title="Asics Jog 100S 2E Wide 'White Black' | Asics | 5877 ₽",
+        local_original_path=candidate_path.as_posix(),
+        status_labels=["poizon_visual_hint_result"],
+    )
+    run_dir = tmp_path / "run"
+    (run_dir / "thumbnails").mkdir(parents=True)
+    (run_dir / "processed_3x4").mkdir(parents=True)
+
+    async with httpx.AsyncClient() as client:
+        accepted = await download_and_process_one(client, candidate, run_dir, {}, manifest, reference_path)
+
+    assert accepted
+    assert candidate.local_processed_path
+
+
 def test_poizon_candidates_keep_small_visual_fallback_when_no_sku_match():
     manifest = _manifest(ProductFacts(brand="Asics", model="Gel Kayano", sku="1203A759-104"))
     candidates = [
@@ -290,7 +362,7 @@ def test_poizon_candidates_keep_small_visual_fallback_when_no_sku_match():
     assert all("visual_fallback_without_sku" in candidate.status_labels for candidate in kept)
 
 
-def test_poizon_queries_prioritize_clean_sku_over_long_product_text():
+def test_poizon_queries_ignore_sku_and_model_without_image_hints():
     manifest = RunManifest(
         run_id="test",
         created_at=datetime.now(),
@@ -303,10 +375,10 @@ def test_poizon_queries_prioritize_clean_sku_over_long_product_text():
         platforms=["poizon_visual"],
     )
 
-    assert platform_queries_for_manifest("poizon_visual", manifest, 8) == ["1203A759-104", "Asics 1203A759-104"]
+    assert platform_queries_for_manifest("poizon_visual", manifest, 8) == []
 
 
-def test_poizon_queries_prioritize_specific_keywords_when_sku_missing():
+def test_poizon_queries_ignore_keywords_without_image_hints():
     manifest = RunManifest(
         run_id="test",
         created_at=datetime.now(),
@@ -319,10 +391,7 @@ def test_poizon_queries_prioritize_specific_keywords_when_sku_missing():
         platforms=["poizon_visual"],
     )
 
-    assert platform_queries_for_manifest("poizon_visual", manifest, 8)[:2] == [
-        "Asics ASICS white silver black retro running sneaker GEL 1130",
-        "Asics white silver black cream ASICS white silver black retro running sneaker GEL 1130",
-    ]
+    assert platform_queries_for_manifest("poizon_visual", manifest, 8) == []
 
 
 def test_poizon_visual_hint_queries_from_reverse_image_url():
