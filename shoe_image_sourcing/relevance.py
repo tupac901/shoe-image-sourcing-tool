@@ -5,8 +5,10 @@ from pathlib import Path
 import imagehash
 from PIL import Image, ImageOps
 
+from . import image_formats  # noqa: F401
 
-IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
+
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".avif"}
 
 
 def find_reference_image(run_dir: Path) -> Path | None:

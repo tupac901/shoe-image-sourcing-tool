@@ -1,4 +1,4 @@
-from shoe_image_sourcing.config import DEFAULT_PLATFORMS, OPTIONAL_PLATFORMS
+from shoe_image_sourcing.config import DEFAULT_PLATFORMS, OPTIONAL_PLATFORMS, SUPPORTED_IMAGE_TYPES
 from shoe_image_sourcing.models import ProductFacts
 from shoe_image_sourcing.query import enrich_product_facts, generate_queries
 
@@ -10,6 +10,10 @@ def test_platform_defaults_include_ozon_reference_sources():
 
 def test_optional_platforms_are_disabled_by_default():
     assert all(not platform.enabled_by_default for platform in OPTIONAL_PLATFORMS)
+
+
+def test_avif_uploads_are_supported():
+    assert "image/avif" in SUPPORTED_IMAGE_TYPES
 
 
 def test_product_facts_normalizes_empty_fields():

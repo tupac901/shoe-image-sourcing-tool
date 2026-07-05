@@ -16,7 +16,7 @@ from .storage import create_run, load_manifest, save_manifest
 
 
 app = FastAPI(title="Shoe Image Sourcing Tool")
-APP_VERSION = "20260705-not-found-notice-1"
+APP_VERSION = "20260705-avif-upload-1"
 
 STATIC_DIR = Path(__file__).parent / "static"
 if STATIC_DIR.exists():
@@ -60,7 +60,7 @@ async def create_crawl_run(
     platforms: str = Form("wildberries,yandex_images,ozon,ebay,official"),
 ):
     if image.content_type not in SUPPORTED_IMAGE_TYPES:
-        raise HTTPException(status_code=400, detail="Only JPEG, PNG, and WebP images are supported")
+        raise HTTPException(status_code=400, detail="Only JPEG, PNG, WebP, and AVIF images are supported")
 
     facts = enrich_product_facts(
         ProductFacts(product_text=product_text, brand=brand, model=model, sku=sku, color=color, keywords=keywords)

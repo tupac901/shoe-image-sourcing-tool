@@ -8,7 +8,7 @@ MAX_UPLOAD_MB = 8
 MAX_IMAGES_PER_RUN = 80
 FAST_PLATFORM_TIMEOUT_SECONDS = 6
 IMAGE_DOWNLOAD_TIMEOUT_SECONDS = 6
-SUPPORTED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
+SUPPORTED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/avif"}
 
 DEFAULT_PLATFORMS = [
     PlatformConfig(name="bing_images", label="Bing Images"),

@@ -47,7 +47,7 @@ FALLBACK_PLATFORM = "bing_downloader"
 FALLBACK_MIN_PROCESSED = 8
 FALLBACK_LIMIT_PER_QUERY = 12
 FALLBACK_MAX_QUERIES = 3
-IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".avif"}
 
 
 GENERIC_MODEL_TOKENS = {
@@ -494,10 +494,14 @@ async def download_image(client: httpx.AsyncClient, image_url: str, output_dir: 
         suffix = ".png"
     elif "webp" in content_type:
         suffix = ".webp"
+    elif "avif" in content_type:
+        suffix = ".avif"
     elif image_url.lower().split("?")[0].endswith(".png"):
         suffix = ".png"
     elif image_url.lower().split("?")[0].endswith(".webp"):
         suffix = ".webp"
+    elif image_url.lower().split("?")[0].endswith(".avif"):
+        suffix = ".avif"
     path = output_dir / f"{candidate_id}{suffix}"
     path.write_bytes(response.content)
     return path

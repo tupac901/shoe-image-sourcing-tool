@@ -3,6 +3,8 @@ from pathlib import Path
 import imagehash
 from PIL import Image, ImageOps
 
+from . import image_formats  # noqa: F401
+
 
 TARGET_SIZE = (900, 1200)
 

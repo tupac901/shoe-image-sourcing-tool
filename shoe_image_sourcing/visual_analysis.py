@@ -6,6 +6,8 @@ from statistics import mean
 
 from PIL import Image, ImageFilter, ImageOps, ImageStat
 
+from . import image_formats  # noqa: F401
+
 
 def _open_rgb(path: Path) -> Image.Image:
     return ImageOps.exif_transpose(Image.open(path)).convert("RGB")
