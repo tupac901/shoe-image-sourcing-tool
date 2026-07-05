@@ -201,9 +201,14 @@ async function pollRun(runId) {
     runTitle.textContent = `任务 ${runId} · failed`;
     summary.textContent = "任务状态读取失败";
     notice.hidden = false;
+    const transient = [502, 503, 504].includes(res.status);
+    const title = transient ? "服务临时不可用" : "任务状态丢失";
+    const message = transient
+      ? "Render 正在冷启动、重启或部署中。请等十几秒后重新提交一次。"
+      : "Render 免费实例重启或重新部署后，本次临时任务文件可能已被清空。请重新提交一次。";
     notice.innerHTML = `
-      <strong>任务状态丢失</strong>
-      <span>Render 免费实例重启或重新部署后，本次临时任务文件可能已被清空。请重新提交一次。</span>
+      <strong>${title}</strong>
+      <span>${message}</span>
     `;
     logs.textContent = `GET /api/runs/${runId} returned ${res.status}`;
     gallery.innerHTML = "";

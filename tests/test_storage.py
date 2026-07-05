@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw
 
+import shoe_image_sourcing.app as app_module
 from shoe_image_sourcing.app import app
 from shoe_image_sourcing.models import ImageCandidate, ProductFacts
 from shoe_image_sourcing.storage import create_run, load_manifest, save_manifest
@@ -209,6 +210,31 @@ def test_create_run_returns_reverse_search_links(tmp_path):
     run = client.get(f"/api/runs/{run_id}").json()
     labels = {link["label"] for link in run["reverse_search_links"]}
     assert {"Google Lens", "Bing Visual Search", "Yandex Images"} <= labels
+
+
+def test_get_run_returns_clear_error_when_manifest_file_is_missing(monkeypatch, tmp_path):
+    monkeypatch.setattr(app_module, "OUTPUT_ROOT", tmp_path)
+    run_dir = tmp_path / "missing-manifest"
+    run_dir.mkdir()
+    client = TestClient(app)
+
+    response = client.get("/api/runs/missing-manifest")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Run manifest missing"
+
+
+def test_get_run_returns_clear_error_when_manifest_file_is_invalid(monkeypatch, tmp_path):
+    monkeypatch.setattr(app_module, "OUTPUT_ROOT", tmp_path)
+    run_dir = tmp_path / "broken-manifest"
+    run_dir.mkdir()
+    (run_dir / "manifest.json").write_text("{broken", encoding="utf-8")
+    client = TestClient(app)
+
+    response = client.get("/api/runs/broken-manifest")
+
+    assert response.status_code == 500
+    assert response.json()["detail"].startswith("Run manifest unreadable")
 
 
 def test_bing_candidate_must_match_sku_or_model_text(tmp_path):

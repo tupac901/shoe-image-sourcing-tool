@@ -16,7 +16,7 @@ from .storage import create_run, load_manifest, save_manifest
 
 
 app = FastAPI(title="Shoe Image Sourcing Tool")
-APP_VERSION = "20260705-failed-status-1"
+APP_VERSION = "20260705-run-read-errors-1"
 
 STATIC_DIR = Path(__file__).parent / "static"
 if STATIC_DIR.exists():
@@ -106,4 +106,10 @@ def get_run(run_id: str):
     run_dir = OUTPUT_ROOT / run_id
     if not run_dir.exists():
         raise HTTPException(status_code=404, detail="Run not found")
-    return load_manifest(run_dir).model_dump()
+    manifest_path = run_dir / "manifest.json"
+    if not manifest_path.exists():
+        raise HTTPException(status_code=404, detail="Run manifest missing")
+    try:
+        return load_manifest(run_dir).model_dump()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Run manifest unreadable: {exc}") from exc
