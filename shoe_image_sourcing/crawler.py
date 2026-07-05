@@ -10,6 +10,7 @@ import anyio
 import httpx
 from PIL import Image
 
+from .adapters.poizon_visual import PoizonVisualAdapter
 from .adapters.search_pages import SearchPageAdapter
 from .adapters.yandex_reverse_image import YandexReverseImageAdapter
 from .config import FAST_PLATFORM_TIMEOUT_SECONDS, IMAGE_DOWNLOAD_TIMEOUT_SECONDS, MAX_IMAGES_PER_RUN
@@ -305,14 +306,15 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
         target_processed_per_platform = 12 if platform == "bing_images" else min(4, limit_per_platform)
         platform_total = 0
         platform_processed = 0
-        platform_queries = manifest.queries[:1] if platform == "yandex_reverse_image" else manifest.queries[:max_queries_per_platform]
+        platform_queries = manifest.queries[:1] if platform in {"yandex_reverse_image", "poizon_visual"} else manifest.queries[:max_queries_per_platform]
         for query in platform_queries:
             try:
-                adapter = (
-                    YandexReverseImageAdapter(reference_path)
-                    if platform == "yandex_reverse_image"
-                    else SearchPageAdapter(platform)
-                )
+                if platform == "yandex_reverse_image":
+                    adapter = YandexReverseImageAdapter(reference_path)
+                elif platform == "poizon_visual":
+                    adapter = PoizonVisualAdapter()
+                else:
+                    adapter = SearchPageAdapter(platform)
                 search_limit = 18 if platform == "bing_images" else limit_per_platform
                 candidates = await adapter.search(query, limit=search_limit, timeout=FAST_PLATFORM_TIMEOUT_SECONDS)
                 if platform == "bing_images":
