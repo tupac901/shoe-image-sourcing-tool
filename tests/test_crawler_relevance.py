@@ -8,6 +8,7 @@ from shoe_image_sourcing.crawler import (
     filter_candidates_for_manifest,
     is_textually_relevant,
     platform_queries_for_manifest,
+    poizon_visual_hint_queries,
     should_accept_candidate_for_manifest,
     should_accept_candidate_match,
     text_relevance_score,
@@ -322,3 +323,17 @@ def test_poizon_queries_prioritize_specific_keywords_when_sku_missing():
         "Asics ASICS white silver black retro running sneaker GEL 1130",
         "Asics white silver black cream ASICS white silver black retro running sneaker GEL 1130",
     ]
+
+
+def test_poizon_visual_hint_queries_from_reverse_image_url():
+    candidates = [
+        ImageCandidate(
+            id="hint",
+            platform="yandex_reverse_image",
+            source_page_url="https://yandex.ru/images/search",
+            image_url="https://2app.kicksonfire.com/kofapp/upload/events_master_images/ipad_asics-jog-100s-2e-wide-white-black.png",
+            title="",
+        )
+    ]
+
+    assert poizon_visual_hint_queries(candidates, "Asics") == ["Asics JOG 100S 2E Wide White Black"]

@@ -3,8 +3,9 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import re
 from pathlib import Path
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, unquote
 
 import anyio
 import httpx
@@ -50,6 +51,26 @@ IMAGE_FIRST_MIN_PROCESSED = 3
 FALLBACK_LIMIT_PER_QUERY = 12
 FALLBACK_MAX_QUERIES = 3
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".avif"}
+VISUAL_HINT_STOP_TOKENS = {
+    "ipad",
+    "upload",
+    "uploads",
+    "product",
+    "products",
+    "image",
+    "images",
+    "media",
+    "origin",
+    "thumb",
+    "thumbnail",
+    "cache",
+    "static",
+    "jpg",
+    "jpeg",
+    "png",
+    "webp",
+    "avif",
+}
 
 
 GENERIC_MODEL_TOKENS = {
@@ -314,6 +335,50 @@ def fallback_queries(manifest: RunManifest) -> list[str]:
     return unique[:FALLBACK_MAX_QUERIES]
 
 
+def _display_token(token: str) -> str:
+    upper_tokens = {"asics", "gel", "gt", "ex", "cn", "fl", "tr", "ff", "jog"}
+    if token.isdigit():
+        return token
+    if token.lower() in upper_tokens or any(ch.isdigit() for ch in token):
+        return token.upper()
+    return token.capitalize()
+
+
+def poizon_visual_hint_queries(candidates: list[ImageCandidate], brand: str | None, limit: int = 3) -> list[str]:
+    if not brand:
+        return []
+    brand_lower = brand.lower()
+    hints: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        for haystack in [candidate.title or "", candidate.image_url or "", candidate.source_page_url or ""]:
+            decoded = unquote(haystack).lower()
+            chunks = re.split(r"[^a-z0-9]+", decoded)
+            for index, token in enumerate(chunks):
+                if token != brand_lower:
+                    continue
+                raw = []
+                for next_token in chunks[index + 1 : index + 10]:
+                    if not next_token or next_token in VISUAL_HINT_STOP_TOKENS:
+                        continue
+                    if len(next_token) > 18:
+                        continue
+                    raw.append(next_token)
+                    if len(raw) >= 7:
+                        break
+                if len(raw) < 2:
+                    continue
+                hint = " ".join([brand, *[_display_token(item) for item in raw]])
+                normalized = hint.lower()
+                if normalized in seen:
+                    continue
+                seen.add(normalized)
+                hints.append(hint)
+                if len(hints) >= limit:
+                    return hints
+    return hints
+
+
 def platform_queries_for_manifest(platform: str, manifest: RunManifest, max_queries_per_platform: int) -> list[str]:
     if platform == "poizon_visual":
         sku = (manifest.facts.sku or "").strip()
@@ -472,6 +537,17 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
             save_manifest(manifest, run_dir)
 
         max_queries_per_platform = min(8, len(manifest.queries))
+        poizon_visual_hints: list[str] = []
+        if reference_path and "poizon_visual" in manifest.platforms and not manifest.facts.sku:
+            hint_candidates = await YandexReverseImageAdapter(reference_path).search(
+                "reference image",
+                limit=6,
+                timeout=FAST_PLATFORM_TIMEOUT_SECONDS,
+            )
+            poizon_visual_hints = poizon_visual_hint_queries(hint_candidates, manifest.facts.brand)
+            if poizon_visual_hints:
+                manifest.logs.append(f"poizon_visual: visual hint queries {poizon_visual_hints}")
+                save_manifest(manifest, run_dir)
 
         for platform in manifest.platforms:
             if processed_count(manifest) >= MAX_IMAGES_PER_RUN:
@@ -481,6 +557,8 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
             platform_total = 0
             platform_processed = 0
             platform_queries = platform_queries_for_manifest(platform, manifest, max_queries_per_platform)
+            if platform == "poizon_visual" and poizon_visual_hints:
+                platform_queries = [*poizon_visual_hints, *platform_queries]
             for query in platform_queries:
                 try:
                     if platform == "yandex_reverse_image":
