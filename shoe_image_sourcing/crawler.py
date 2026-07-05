@@ -152,6 +152,37 @@ def has_rejected_status(candidate: ImageCandidate) -> bool:
     return any(label in REJECTED_STATUS_LABELS for label in candidate.status_labels)
 
 
+def _compact(value: str | None) -> str:
+    return "".join(ch for ch in (value or "").lower() if ch.isalnum())
+
+
+def candidate_search_text(candidate: ImageCandidate) -> str:
+    return " ".join(
+        item
+        for item in [candidate.title or "", candidate.source_page_url or "", candidate.image_url or ""]
+        if item
+    ).lower()
+
+
+def has_exact_sku_match(candidate: ImageCandidate, manifest: RunManifest) -> bool:
+    sku = _compact(manifest.facts.sku)
+    if not sku:
+        return True
+    return sku in _compact(candidate_search_text(candidate))
+
+
+def should_accept_candidate_for_manifest(
+    candidate: ImageCandidate,
+    manifest: RunManifest,
+    text_score: int,
+    visual_score: int,
+    profile_score: int,
+) -> bool:
+    if candidate.platform == "poizon_visual" and manifest.facts.sku and not has_exact_sku_match(candidate, manifest):
+        return False
+    return should_accept_candidate_match(candidate, text_score, visual_score, profile_score)
+
+
 def should_accept_candidate_match(candidate: ImageCandidate, text_score: int, visual_score: int, profile_score: int) -> bool:
     generic_search_candidate = is_generic_search_candidate(candidate)
     strong_text_match = text_score >= 10 and (visual_score >= 20 or profile_score >= 45)
@@ -258,6 +289,9 @@ async def run_image_downloader_fallback(
     hashes: dict[str, str],
     reference_path: Path | None,
 ) -> None:
+    if manifest.platforms == ["poizon_visual"]:
+        manifest.logs.append("image fallback skipped: poizon exact-match mode")
+        return
     if processed_count(manifest) >= FALLBACK_MIN_PROCESSED:
         return
     queries = fallback_queries(manifest)
@@ -352,6 +386,8 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
     await run_image_downloader_fallback(manifest, run_dir, hashes, reference_path)
     group_duplicates(manifest.candidates, hashes)
     manifest.status = "complete"
+    if processed_count(manifest) == 0:
+        manifest.logs.append("no exact product image found")
     manifest.logs.append("run complete")
     save_manifest(manifest, run_dir)
     return manifest
@@ -421,7 +457,14 @@ async def download_and_process_one(
             candidate.status_labels.append("visual_mismatch")
             manifest.logs.append(f"{candidate.platform}: rejected non-product title {candidate.title}")
             return False
-        if not should_accept_candidate_match(candidate, text_score, visual_score, profile_score):
+        if candidate.platform == "poizon_visual" and manifest.facts.sku and not has_exact_sku_match(candidate, manifest):
+            candidate.status_labels.append("visual_mismatch")
+            candidate.status_labels.append("sku_mismatch")
+            manifest.logs.append(
+                f"{candidate.platform}: rejected non-exact sku image {original_path.name} expected_sku={manifest.facts.sku} title={candidate.title}"
+            )
+            return False
+        if not should_accept_candidate_for_manifest(candidate, manifest, text_score, visual_score, profile_score):
             candidate.status_labels.append("visual_mismatch")
             manifest.logs.append(
                 f"{candidate.platform}: rejected image {original_path.name} text_score={text_score} visual_score={visual_score} profile_score={profile_score}"

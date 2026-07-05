@@ -6,6 +6,7 @@ from shoe_image_sourcing.crawler import (
     candidates_from_downloaded_images,
     fallback_queries,
     is_textually_relevant,
+    should_accept_candidate_for_manifest,
     should_accept_candidate_match,
     text_relevance_score,
 )
@@ -106,3 +107,29 @@ def test_match_rejects_weak_visual_candidate_without_text_match():
     )
 
     assert not should_accept_candidate_match(candidate, text_score=0, visual_score=40, profile_score=90)
+
+
+def test_poizon_candidate_rejects_wrong_sku_even_when_visually_similar():
+    manifest = _manifest(ProductFacts(brand="Asics", model="Novablast 6", sku="1012C008-103"))
+    candidate = ImageCandidate(
+        id="candidate",
+        platform="poizon_visual",
+        source_page_url="https://poizon.ru/product/1012b765-6",
+        image_url="https://static.poizon.ru/novablast5.jpg",
+        title="ASICS NOVABLAST 5 Comfortable Versatile Casual Running Shoes Women's Red | Asics | 11875 ₽",
+    )
+
+    assert not should_accept_candidate_for_manifest(candidate, manifest, text_score=8, visual_score=90, profile_score=88)
+
+
+def test_poizon_candidate_accepts_exact_sku_match():
+    manifest = _manifest(ProductFacts(brand="Asics", model="Novablast 6", sku="1012C008-103"))
+    candidate = ImageCandidate(
+        id="candidate",
+        platform="poizon_visual",
+        source_page_url="https://poizon.ru/product/1012c008-103",
+        image_url="https://static.poizon.ru/novablast6.jpg",
+        title="ASICS Novablast 6 1012C008-103 Red | Asics | 11875 ₽",
+    )
+
+    assert should_accept_candidate_for_manifest(candidate, manifest, text_score=16, visual_score=70, profile_score=88)

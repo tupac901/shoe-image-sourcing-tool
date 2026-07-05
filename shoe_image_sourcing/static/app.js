@@ -151,7 +151,8 @@ renderSummary = function (run) {
   const profileText = profile.foreground_aspect
     ? ` | visual: aspect ${profile.foreground_aspect}, coverage ${profile.foreground_coverage}, edge ${profile.edge_density}`
     : "";
-  summary.innerHTML = `图片 ${withImages} 张，已转 3:4 ${processed} 张，搜索页线索 ${searchOnly} 条${profileText}${reverseSearchMarkup(run)}`;
+  const notFound = run.status === "complete" && processed === 0 ? " | 未找到同款图片" : "";
+  summary.innerHTML = `图片 ${withImages} 张，已转 3:4 ${processed} 张，搜索页线索 ${searchOnly} 条${notFound}${profileText}${reverseSearchMarkup(run)}`;
 };
 
 function imageMarkup(candidate) {
