@@ -65,6 +65,28 @@ def test_extract_poizon_candidates_marks_sku_search_results():
     assert "poizon_sku_search_result" in candidates[0].status_labels
 
 
+def test_extract_poizon_candidates_does_not_treat_model_number_as_sku_search():
+    payload = {
+        "data": {
+            "searchProducts": {
+                "data": [
+                    {
+                        "id": "gel-1130",
+                        "name": "Asics Gel 1130",
+                        "brandLabel": "Asics",
+                        "url": "/product/1201a933-100",
+                        "images": [{"url": "https://img.poizon.ru/asics-gel-1130.avif"}],
+                    }
+                ]
+            }
+        }
+    }
+
+    candidates = extract_poizon_candidates(payload, "ASICS GEL 1130 white silver black")
+
+    assert "poizon_sku_search_result" not in candidates[0].status_labels
+
+
 @pytest.mark.anyio
 async def test_poizon_visual_adapter_search_uses_graphql(monkeypatch):
     payload = {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from hashlib import sha1
+import re
 from typing import Any
 
 import httpx
@@ -11,6 +12,7 @@ from .base import PlatformAdapter
 
 
 POIZON_GRAPHQL_URL = "https://poizon.ru/graphql"
+SKU_QUERY_PATTERN = re.compile(r"\b[A-Z0-9]{3,}-[A-Z0-9]{2,}\b", re.I)
 PRODUCT_LIST_QUERY = """
 query getProductList($search:String,$filters:ProductFiltersInput,$sort:ProductSortInput,$first:Int!,$page:Int){
   searchProducts(search:$search filters:$filters sort:$sort first:$first page:$page){
@@ -30,7 +32,7 @@ query getProductList($search:String,$filters:ProductFiltersInput,$sort:ProductSo
 def extract_poizon_candidates(payload: dict[str, Any], query: str) -> list[ImageCandidate]:
     products = (((payload.get("data") or {}).get("searchProducts") or {}).get("data") or [])
     candidates: list[ImageCandidate] = []
-    query_has_sku_shape = any(ch.isdigit() for ch in query) and len("".join(ch for ch in query if ch.isalnum())) >= 6
+    query_has_sku_shape = bool(SKU_QUERY_PATTERN.search(query))
     for product in products:
         product_id = str(product.get("id") or "")
         product_name = str(product.get("name") or "").strip()

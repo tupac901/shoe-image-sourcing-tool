@@ -190,18 +190,20 @@ def should_accept_candidate_for_manifest(
     feature_score: int = 50,
 ) -> bool:
     if candidate.platform == "poizon_visual":
-        if manifest.facts.sku and not has_exact_sku_match(candidate, manifest) and not is_visual_fallback_candidate(candidate):
+        has_manifest_sku = bool(_compact(manifest.facts.sku))
+        exact_sku_match = has_manifest_sku and has_exact_sku_match(candidate, manifest)
+        if has_manifest_sku and not exact_sku_match and not is_visual_fallback_candidate(candidate):
             return False
         if is_visual_fallback_candidate(candidate):
             if is_poizon_sku_search_result(candidate):
                 return (visual_score >= 78 and profile_score >= 50) or (visual_score >= 90 and profile_score >= 45)
             return feature_score >= 35 and visual_score >= 88 and profile_score >= 72
-        if has_exact_sku_match(candidate, manifest):
+        if exact_sku_match:
             return (
                 feature_score >= 25
                 and ((visual_score >= 82 and profile_score >= 72) or (visual_score >= 70 and profile_score >= 84))
             ) or (visual_score >= 78 and profile_score >= 50) or (visual_score >= 90 and profile_score >= 45)
-        return feature_score >= 25 and ((visual_score >= 82 and profile_score >= 72) or (visual_score >= 70 and profile_score >= 84))
+        return feature_score >= 18 and visual_score >= 70 and profile_score >= 45
     return should_accept_candidate_match(candidate, text_score, visual_score, profile_score)
 
 
@@ -327,7 +329,31 @@ def platform_queries_for_manifest(platform: str, manifest: RunManifest, max_quer
                 seen.add(normalized.lower())
                 unique.append(normalized)
             return unique
-        return manifest.queries[:1]
+        facts = manifest.facts
+        query_candidates = [
+            " ".join(part for part in [facts.brand, facts.keywords] if part),
+            " ".join(part for part in [facts.brand, facts.color, facts.keywords] if part),
+            " ".join(part for part in [facts.brand, facts.model] if part),
+            " ".join(part for part in [facts.brand, facts.model, facts.color] if part),
+            *[
+                query
+                for query in manifest.queries
+                if not query.lower().endswith(("product images", "official product photos"))
+            ],
+        ]
+        unique: list[str] = []
+        seen: set[str] = set()
+        for query in query_candidates:
+            normalized = " ".join((query or "").split())
+            if len(normalized) < 4 or normalized.lower() in seen:
+                continue
+            if facts.brand and normalized.lower() == facts.brand.lower():
+                continue
+            seen.add(normalized.lower())
+            unique.append(normalized)
+            if len(unique) >= max(1, min(3, max_queries_per_platform or 3)):
+                break
+        return unique or manifest.queries[:1]
     if platform == "yandex_reverse_image":
         if manifest.queries:
             return manifest.queries[:1]

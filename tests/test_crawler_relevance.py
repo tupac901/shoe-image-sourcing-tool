@@ -206,6 +206,46 @@ def test_poizon_sku_search_fallback_uses_visual_profile_when_feature_matching_is
     )
 
 
+def test_poizon_without_sku_rejects_lookalike_with_weak_feature_match():
+    manifest = _manifest(ProductFacts(brand="Asics", keywords="GEL 1130 white silver black"))
+    candidate = ImageCandidate(
+        id="candidate",
+        platform="poizon_visual",
+        source_page_url="https://poizon.ru/product/1011b109-031",
+        image_url="https://static.poizon.ru/gel-kahana-lookalike.jpg",
+        title="Asics Gel-Kahana 8 Gray Black Brown | Asics",
+    )
+
+    assert not should_accept_candidate_for_manifest(
+        candidate,
+        manifest,
+        text_score=2,
+        visual_score=90,
+        profile_score=58,
+        feature_score=5,
+    )
+
+
+def test_poizon_without_sku_rejects_high_visual_low_feature_match():
+    manifest = _manifest(ProductFacts(brand="Asics", keywords="GEL 1130 white silver black"))
+    candidate = ImageCandidate(
+        id="candidate",
+        platform="poizon_visual",
+        source_page_url="https://poizon.ru/product/1011b646-101",
+        image_url="https://static.poizon.ru/gel-flux-lookalike.jpg",
+        title="Asics Gel Flux Cn 'Cream White Black' | Asics",
+    )
+
+    assert not should_accept_candidate_for_manifest(
+        candidate,
+        manifest,
+        text_score=2,
+        visual_score=100,
+        profile_score=69,
+        feature_score=8,
+    )
+
+
 def test_poizon_candidates_without_exact_sku_are_filtered_before_download():
     manifest = _manifest(ProductFacts(brand="Asics", model="Jog 100S", sku="1201A967-100"))
     exact = ImageCandidate(
@@ -263,3 +303,22 @@ def test_poizon_queries_prioritize_clean_sku_over_long_product_text():
     )
 
     assert platform_queries_for_manifest("poizon_visual", manifest, 8) == ["1203A759-104", "Asics 1203A759-104"]
+
+
+def test_poizon_queries_prioritize_specific_keywords_when_sku_missing():
+    manifest = RunManifest(
+        run_id="test",
+        created_at=datetime.now(),
+        facts=ProductFacts(
+            brand="Asics",
+            color="white silver black cream",
+            keywords="ASICS white silver black retro running sneaker GEL 1130",
+        ),
+        queries=["Asics product images", "Asics official product photos", "Asics white silver black cream shoes"],
+        platforms=["poizon_visual"],
+    )
+
+    assert platform_queries_for_manifest("poizon_visual", manifest, 8)[:2] == [
+        "Asics ASICS white silver black retro running sneaker GEL 1130",
+        "Asics white silver black cream ASICS white silver black retro running sneaker GEL 1130",
+    ]
