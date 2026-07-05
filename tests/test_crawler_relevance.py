@@ -121,7 +121,7 @@ def test_poizon_candidate_rejects_wrong_sku_even_when_visually_similar():
         title="ASICS NOVABLAST 5 Comfortable Versatile Casual Running Shoes Women's Red | Asics | 11875 ₽",
     )
 
-    assert not should_accept_candidate_for_manifest(candidate, manifest, text_score=8, visual_score=90, profile_score=88)
+    assert not should_accept_candidate_for_manifest(candidate, manifest, text_score=8, visual_score=90, profile_score=88, feature_score=80)
 
 
 def test_poizon_candidate_accepts_exact_sku_match():
@@ -134,7 +134,7 @@ def test_poizon_candidate_accepts_exact_sku_match():
         title="ASICS Novablast 6 1012C008-103 Red | Asics | 11875 ₽",
     )
 
-    assert should_accept_candidate_for_manifest(candidate, manifest, text_score=16, visual_score=70, profile_score=88)
+    assert should_accept_candidate_for_manifest(candidate, manifest, text_score=16, visual_score=70, profile_score=88, feature_score=40)
 
 
 def test_poizon_exact_sku_still_requires_visual_match():
@@ -147,7 +147,7 @@ def test_poizon_exact_sku_still_requires_visual_match():
         title="ASICS Novablast 6 1012C008-103 Red | Asics | 11875 ₽",
     )
 
-    assert not should_accept_candidate_for_manifest(candidate, manifest, text_score=16, visual_score=55, profile_score=65)
+    assert not should_accept_candidate_for_manifest(candidate, manifest, text_score=16, visual_score=55, profile_score=65, feature_score=80)
 
 
 def test_poizon_visual_fallback_requires_strong_visual_match():
@@ -161,8 +161,8 @@ def test_poizon_visual_fallback_requires_strong_visual_match():
         status_labels=["visual_fallback_without_sku"],
     )
 
-    assert not should_accept_candidate_for_manifest(candidate, manifest, text_score=4, visual_score=93, profile_score=88)
-    assert should_accept_candidate_for_manifest(candidate, manifest, text_score=4, visual_score=96, profile_score=90)
+    assert not should_accept_candidate_for_manifest(candidate, manifest, text_score=4, visual_score=93, profile_score=88, feature_score=3)
+    assert should_accept_candidate_for_manifest(candidate, manifest, text_score=4, visual_score=96, profile_score=90, feature_score=45)
 
 
 def test_poizon_candidates_without_exact_sku_are_filtered_before_download():

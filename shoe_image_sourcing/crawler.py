@@ -15,6 +15,7 @@ from .adapters.search_pages import SearchPageAdapter
 from .adapters.yandex_reverse_image import YandexReverseImageAdapter
 from .config import FAST_PLATFORM_TIMEOUT_SECONDS, IMAGE_DOWNLOAD_TIMEOUT_SECONDS, MAX_IMAGES_PER_RUN
 from .dedupe import group_duplicates
+from .feature_similarity import orb_similarity_score
 from .image_processing import compute_phash, make_thumbnail, process_to_3x4
 from .models import ImageCandidate, RunManifest
 from .relevance import find_reference_image, visual_similarity_score
@@ -181,13 +182,14 @@ def should_accept_candidate_for_manifest(
     text_score: int,
     visual_score: int,
     profile_score: int,
+    feature_score: int = 50,
 ) -> bool:
     if candidate.platform == "poizon_visual":
         if manifest.facts.sku and not has_exact_sku_match(candidate, manifest) and not is_visual_fallback_candidate(candidate):
             return False
         if is_visual_fallback_candidate(candidate):
-            return visual_score >= 96 and profile_score >= 90
-        return (visual_score >= 82 and profile_score >= 78) or (visual_score >= 70 and profile_score >= 88)
+            return feature_score >= 35 and visual_score >= 88 and profile_score >= 72
+        return feature_score >= 25 and ((visual_score >= 82 and profile_score >= 72) or (visual_score >= 70 and profile_score >= 84))
     return should_accept_candidate_match(candidate, text_score, visual_score, profile_score)
 
 
@@ -540,17 +542,19 @@ async def download_and_process_one(
         text_score = text_relevance_score(candidate, manifest)
         visual_score = visual_similarity_score(reference_path, original_path)
         profile_score = profile_similarity_score(reference_path, original_path)
+        feature_score = orb_similarity_score(reference_path, original_path)
         candidate.status_labels.append(f"text_score_{text_score}")
         candidate.status_labels.append(f"visual_score_{visual_score}")
         candidate.status_labels.append(f"profile_score_{profile_score}")
+        candidate.status_labels.append(f"feature_score_{feature_score}")
         if has_non_product_title(candidate):
             candidate.status_labels.append("visual_mismatch")
             manifest.logs.append(f"{candidate.platform}: rejected non-product title {candidate.title}")
             return False
-        if not should_accept_candidate_for_manifest(candidate, manifest, text_score, visual_score, profile_score):
+        if not should_accept_candidate_for_manifest(candidate, manifest, text_score, visual_score, profile_score, feature_score):
             candidate.status_labels.append("visual_mismatch")
             manifest.logs.append(
-                f"{candidate.platform}: rejected image {original_path.name} text_score={text_score} visual_score={visual_score} profile_score={profile_score}"
+                f"{candidate.platform}: rejected image {original_path.name} text_score={text_score} visual_score={visual_score} profile_score={profile_score} feature_score={feature_score}"
             )
             return False
         thumb_path = run_dir / "thumbnails" / f"{candidate.id}.jpg"
