@@ -152,6 +152,10 @@ def has_rejected_status(candidate: ImageCandidate) -> bool:
     return any(label in REJECTED_STATUS_LABELS for label in candidate.status_labels)
 
 
+def is_visual_fallback_candidate(candidate: ImageCandidate) -> bool:
+    return "visual_fallback_without_sku" in candidate.status_labels
+
+
 def _compact(value: str | None) -> str:
     return "".join(ch for ch in (value or "").lower() if ch.isalnum())
 
@@ -178,23 +182,53 @@ def should_accept_candidate_for_manifest(
     visual_score: int,
     profile_score: int,
 ) -> bool:
-    if candidate.platform == "poizon_visual" and manifest.facts.sku and not has_exact_sku_match(candidate, manifest):
+    if (
+        candidate.platform == "poizon_visual"
+        and manifest.facts.sku
+        and not has_exact_sku_match(candidate, manifest)
+        and not is_visual_fallback_candidate(candidate)
+    ):
         return False
     return should_accept_candidate_match(candidate, text_score, visual_score, profile_score)
 
 
-def filter_candidates_for_manifest(candidates: list[ImageCandidate], manifest: RunManifest) -> tuple[list[ImageCandidate], int]:
+def filter_candidates_for_manifest(
+    candidates: list[ImageCandidate],
+    manifest: RunManifest,
+    visual_fallback_limit: int = 0,
+) -> tuple[list[ImageCandidate], int]:
     if not manifest.facts.sku:
         return candidates, 0
-    kept: list[ImageCandidate] = []
+    poizon_candidates = [candidate for candidate in candidates if candidate.platform == "poizon_visual"]
+    if not poizon_candidates:
+        return candidates, 0
+    exact_poizon = [candidate for candidate in poizon_candidates if has_exact_sku_match(candidate, manifest)]
+    if exact_poizon:
+        kept: list[ImageCandidate] = []
+        removed = 0
+        for candidate in candidates:
+            if candidate.platform == "poizon_visual" and not has_exact_sku_match(candidate, manifest):
+                candidate.status_labels.append("visual_mismatch")
+                candidate.status_labels.append("sku_mismatch")
+                removed += 1
+                continue
+            kept.append(candidate)
+        return kept, removed
+    fallback_remaining = visual_fallback_limit
+    kept = []
     removed = 0
     for candidate in candidates:
-        if candidate.platform == "poizon_visual" and not has_exact_sku_match(candidate, manifest):
+        if candidate.platform != "poizon_visual":
+            kept.append(candidate)
+            continue
+        if fallback_remaining > 0:
+            candidate.status_labels.append("visual_fallback_without_sku")
+            kept.append(candidate)
+            fallback_remaining -= 1
+        else:
             candidate.status_labels.append("visual_mismatch")
             candidate.status_labels.append("sku_mismatch")
             removed += 1
-            continue
-        kept.append(candidate)
     return kept, removed
 
 
@@ -244,6 +278,27 @@ def fallback_queries(manifest: RunManifest) -> list[str]:
         seen.add(normalized.lower())
         unique.append(normalized)
     return unique[:FALLBACK_MAX_QUERIES]
+
+
+def platform_queries_for_manifest(platform: str, manifest: RunManifest, max_queries_per_platform: int) -> list[str]:
+    if platform == "poizon_visual":
+        sku = (manifest.facts.sku or "").strip()
+        if sku:
+            brand_sku = " ".join(part for part in [manifest.facts.brand, sku] if part)
+            queries = [sku, brand_sku]
+            unique: list[str] = []
+            seen: set[str] = set()
+            for query in queries:
+                normalized = " ".join(query.split())
+                if normalized.lower() in seen:
+                    continue
+                seen.add(normalized.lower())
+                unique.append(normalized)
+            return unique
+        return manifest.queries[:1]
+    if platform == "yandex_reverse_image":
+        return manifest.queries[:1]
+    return manifest.queries[:max_queries_per_platform]
 
 
 def download_bing_images(query: str, output_dir: Path, limit: int = FALLBACK_LIMIT_PER_QUERY) -> Path:
@@ -356,7 +411,7 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
             target_processed_per_platform = 12 if platform == "bing_images" else min(4, limit_per_platform)
             platform_total = 0
             platform_processed = 0
-            platform_queries = manifest.queries[:1] if platform in {"yandex_reverse_image", "poizon_visual"} else manifest.queries[:max_queries_per_platform]
+            platform_queries = platform_queries_for_manifest(platform, manifest, max_queries_per_platform)
             for query in platform_queries:
                 try:
                     if platform == "yandex_reverse_image":
@@ -369,7 +424,8 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
                     candidates = await adapter.search(query, limit=search_limit, timeout=FAST_PLATFORM_TIMEOUT_SECONDS)
                     if platform == "bing_images":
                         candidates = sorted(candidates, key=lambda candidate: text_relevance_score(candidate, manifest), reverse=True)
-                    candidates, prefiltered = filter_candidates_for_manifest(candidates, manifest)
+                    visual_fallback_limit = 3 if platform == "poizon_visual" else 0
+                    candidates, prefiltered = filter_candidates_for_manifest(candidates, manifest, visual_fallback_limit)
                     if prefiltered:
                         manifest.logs.append(f"{platform}: skipped {prefiltered} non-exact sku candidates before download")
                     if not any(candidate.image_url or candidate.local_original_path for candidate in candidates):
@@ -463,7 +519,12 @@ async def download_and_process_one(
             candidate.status_labels.append("visual_mismatch")
             manifest.logs.append(f"{candidate.platform}: rejected browser/search-ui asset {candidate.image_url}")
             return False
-        if candidate.platform == "poizon_visual" and manifest.facts.sku and not has_exact_sku_match(candidate, manifest):
+        if (
+            candidate.platform == "poizon_visual"
+            and manifest.facts.sku
+            and not has_exact_sku_match(candidate, manifest)
+            and not is_visual_fallback_candidate(candidate)
+        ):
             candidate.status_labels.append("visual_mismatch")
             candidate.status_labels.append("sku_mismatch")
             manifest.logs.append(

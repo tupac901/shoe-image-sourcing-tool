@@ -7,6 +7,7 @@ from shoe_image_sourcing.crawler import (
     fallback_queries,
     filter_candidates_for_manifest,
     is_textually_relevant,
+    platform_queries_for_manifest,
     should_accept_candidate_for_manifest,
     should_accept_candidate_match,
     text_relevance_score,
@@ -157,3 +158,39 @@ def test_poizon_candidates_without_exact_sku_are_filtered_before_download():
 
     assert kept == [exact]
     assert removed == 1
+
+
+def test_poizon_candidates_keep_small_visual_fallback_when_no_sku_match():
+    manifest = _manifest(ProductFacts(brand="Asics", model="Gel Kayano", sku="1203A759-104"))
+    candidates = [
+        ImageCandidate(
+            id=f"candidate-{index}",
+            platform="poizon_visual",
+            source_page_url=f"https://poizon.ru/product/no-sku-{index}",
+            image_url=f"https://static.poizon.ru/no-sku-{index}.jpg",
+            title="ASICS retro sneaker | Asics",
+        )
+        for index in range(6)
+    ]
+
+    kept, removed = filter_candidates_for_manifest(candidates, manifest, visual_fallback_limit=3)
+
+    assert len(kept) == 3
+    assert removed == 3
+    assert all("visual_fallback_without_sku" in candidate.status_labels for candidate in kept)
+
+
+def test_poizon_queries_prioritize_clean_sku_over_long_product_text():
+    manifest = RunManifest(
+        run_id="test",
+        created_at=datetime.now(),
+        facts=ProductFacts(
+            brand="Asics",
+            model="复古低帮休闲板鞋 | ASICS 米白灰棕拼接复古通勤训练板鞋",
+            sku="1203A759-104",
+        ),
+        queries=['"1203A759-104" "Asics 复古低帮休闲板鞋" shoe'],
+        platforms=["poizon_visual"],
+    )
+
+    assert platform_queries_for_manifest("poizon_visual", manifest, 8) == ["1203A759-104", "Asics 1203A759-104"]
