@@ -6,7 +6,14 @@ import shoe_image_sourcing.app as app_module
 from shoe_image_sourcing.app import app
 from shoe_image_sourcing.models import ImageCandidate, ProductFacts
 from shoe_image_sourcing.storage import create_run, load_manifest, save_manifest
-from shoe_image_sourcing.crawler import collect_candidates, download_and_process_candidates, is_textually_relevant, prune_rejected_candidates
+from shoe_image_sourcing.crawler import (
+    collect_candidates,
+    download_and_process_candidates,
+    ensure_image_first_platforms,
+    is_textually_relevant,
+    prune_rejected_candidates,
+    should_skip_fallback,
+)
 
 
 def test_create_run_builds_expected_directories(tmp_path):
@@ -30,6 +37,30 @@ def test_manifest_round_trip(tmp_path):
     assert loaded.run_id == manifest.run_id
     assert loaded.logs == ["started"]
     assert not (run_dir / "manifest.json.tmp").exists()
+
+
+def test_poizon_visual_auto_adds_yandex_reverse_for_image_first(tmp_path):
+    manifest, _ = create_run(ProductFacts(brand="Asics"), ["Asics shoe"], ["poizon_visual"], tmp_path)
+
+    ensure_image_first_platforms(manifest, has_reference_image=True)
+
+    assert manifest.platforms[:2] == ["yandex_reverse_image", "poizon_visual"]
+
+
+def test_image_first_skips_bing_fallback_after_reverse_matches(tmp_path):
+    manifest, _ = create_run(ProductFacts(brand="Asics"), ["Asics shoe"], ["yandex_reverse_image", "poizon_visual"], tmp_path)
+    for index in range(3):
+        manifest.candidates.append(
+            ImageCandidate(
+                id=f"reverse-{index}",
+                platform="yandex_reverse_image",
+                source_page_url="https://yandex.ru/images/search",
+                image_url=f"https://example.com/{index}.jpg",
+                local_processed_path=f"processed/{index}.jpg",
+            )
+        )
+
+    assert should_skip_fallback(manifest)
 
 
 @pytest.mark.anyio

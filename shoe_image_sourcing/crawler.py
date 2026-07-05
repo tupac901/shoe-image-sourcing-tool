@@ -46,6 +46,7 @@ NON_PRODUCT_TITLE_MARKERS = (
 )
 FALLBACK_PLATFORM = "bing_downloader"
 FALLBACK_MIN_PROCESSED = 8
+IMAGE_FIRST_MIN_PROCESSED = 3
 FALLBACK_LIMIT_PER_QUERY = 12
 FALLBACK_MAX_QUERIES = 3
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".avif"}
@@ -259,6 +260,25 @@ def processed_count(manifest: RunManifest) -> int:
     return sum(1 for candidate in manifest.candidates if candidate.local_processed_path)
 
 
+def image_first_processed_count(manifest: RunManifest) -> int:
+    return sum(
+        1
+        for candidate in manifest.candidates
+        if candidate.local_processed_path and candidate.platform in {"yandex_reverse_image", "poizon_visual"}
+    )
+
+
+def ensure_image_first_platforms(manifest: RunManifest, has_reference_image: bool) -> None:
+    if not has_reference_image or "poizon_visual" not in manifest.platforms:
+        return
+    manifest.platforms = [platform for platform in manifest.platforms if platform != "yandex_reverse_image"]
+    manifest.platforms.insert(0, "yandex_reverse_image")
+
+
+def should_skip_fallback(manifest: RunManifest) -> bool:
+    return image_first_processed_count(manifest) >= IMAGE_FIRST_MIN_PROCESSED
+
+
 def fallback_queries(manifest: RunManifest) -> list[str]:
     facts = manifest.facts
     exact_parts = [facts.sku, facts.brand, facts.model]
@@ -360,6 +380,9 @@ async def run_image_downloader_fallback(
     hashes: dict[str, str],
     reference_path: Path | None,
 ) -> None:
+    if should_skip_fallback(manifest):
+        manifest.logs.append(f"image fallback skipped: image-first matches reached {image_first_processed_count(manifest)}")
+        return
     if manifest.platforms == ["poizon_visual"]:
         manifest.logs.append("image fallback skipped: poizon exact-match mode")
         return
@@ -398,6 +421,7 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
     try:
         hashes: dict[str, str] = {}
         reference_path = find_reference_image(run_dir)
+        ensure_image_first_platforms(manifest, bool(reference_path))
         if reference_path:
             manifest.visual_profile = analyze_image(reference_path)
             manifest.logs.append("reference image analyzed for visual-first matching")
