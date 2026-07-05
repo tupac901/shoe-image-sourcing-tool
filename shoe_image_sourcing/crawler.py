@@ -445,6 +445,13 @@ async def download_and_process_one(
             candidate.status_labels.append("visual_mismatch")
             manifest.logs.append(f"{candidate.platform}: rejected browser/search-ui asset {candidate.image_url}")
             return False
+        if candidate.platform == "poizon_visual" and manifest.facts.sku and not has_exact_sku_match(candidate, manifest):
+            candidate.status_labels.append("visual_mismatch")
+            candidate.status_labels.append("sku_mismatch")
+            manifest.logs.append(
+                f"{candidate.platform}: rejected non-exact sku image before download expected_sku={manifest.facts.sku} title={candidate.title}"
+            )
+            return False
         original_path = Path(candidate.local_original_path) if candidate.local_original_path else await download_image(client, candidate.image_url, run_dir / "originals", candidate.id)
         with Image.open(original_path) as image:
             candidate.width, candidate.height = image.size
@@ -461,13 +468,6 @@ async def download_and_process_one(
         if has_non_product_title(candidate):
             candidate.status_labels.append("visual_mismatch")
             manifest.logs.append(f"{candidate.platform}: rejected non-product title {candidate.title}")
-            return False
-        if candidate.platform == "poizon_visual" and manifest.facts.sku and not has_exact_sku_match(candidate, manifest):
-            candidate.status_labels.append("visual_mismatch")
-            candidate.status_labels.append("sku_mismatch")
-            manifest.logs.append(
-                f"{candidate.platform}: rejected non-exact sku image {original_path.name} expected_sku={manifest.facts.sku} title={candidate.title}"
-            )
             return False
         if not should_accept_candidate_for_manifest(candidate, manifest, text_score, visual_score, profile_score):
             candidate.status_labels.append("visual_mismatch")

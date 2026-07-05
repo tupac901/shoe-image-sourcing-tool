@@ -149,6 +149,33 @@ async def test_download_processing_rejects_generic_search_result_without_visual_
     assert candidate.local_processed_path is None
 
 
+@pytest.mark.anyio
+async def test_poizon_wrong_sku_candidate_is_rejected_before_download(tmp_path):
+    manifest, run_dir = create_run(ProductFacts(brand="Asics", model="Jog 100S", sku="1201A967-100"), ["Asics Jog 100S"], ["poizon_visual"], tmp_path)
+    reference = run_dir / "input" / "reference.jpg"
+    Image.new("RGB", (400, 300), "white").save(reference)
+
+    class FailingClient:
+        async def get(self, _url):
+            raise AssertionError("wrong-SKU Poizon images should not be downloaded")
+
+    candidate = ImageCandidate(
+        id="wrong-sku",
+        platform="poizon_visual",
+        source_page_url="https://poizon.ru/product/1203A123-001",
+        image_url="https://static.poizon.ru/wrong.jpg",
+        title="ASICS Jog 100S Cream Feather Grey | Asics | 14804 ₽",
+    )
+
+    from shoe_image_sourcing.crawler import download_and_process_one
+
+    accepted = await download_and_process_one(FailingClient(), candidate, run_dir, {}, manifest, reference)
+
+    assert not accepted
+    assert "sku_mismatch" in candidate.status_labels
+    assert candidate.local_original_path is None
+
+
 def test_prune_rejected_candidates_removes_bad_gallery_cards(tmp_path):
     manifest, _ = create_run(ProductFacts(brand="Nike"), ["Nike shoe"], ["bing_images"], tmp_path)
     good = ImageCandidate(id="good", platform="bing_images", source_page_url="https://example.com/good", image_url="https://example.com/good.jpg")
