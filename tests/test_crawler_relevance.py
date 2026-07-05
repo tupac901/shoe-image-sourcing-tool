@@ -5,6 +5,7 @@ from PIL import Image
 from shoe_image_sourcing.crawler import (
     candidates_from_downloaded_images,
     fallback_queries,
+    filter_candidates_for_manifest,
     is_textually_relevant,
     should_accept_candidate_for_manifest,
     should_accept_candidate_match,
@@ -133,3 +134,26 @@ def test_poizon_candidate_accepts_exact_sku_match():
     )
 
     assert should_accept_candidate_for_manifest(candidate, manifest, text_score=16, visual_score=70, profile_score=88)
+
+
+def test_poizon_candidates_without_exact_sku_are_filtered_before_download():
+    manifest = _manifest(ProductFacts(brand="Asics", model="Jog 100S", sku="1201A967-100"))
+    exact = ImageCandidate(
+        id="exact",
+        platform="poizon_visual",
+        source_page_url="https://poizon.ru/product/1201a967-100",
+        image_url="https://static.poizon.ru/exact.jpg",
+        title="Asics Jog 100S 2E Wide 'White Black' | Asics | 5877 ₽",
+    )
+    wrong = ImageCandidate(
+        id="wrong",
+        platform="poizon_visual",
+        source_page_url="https://poizon.ru/product/1203A123-001",
+        image_url="https://static.poizon.ru/wrong.jpg",
+        title="ASICS Jog 100S Cream Feather Grey | Asics | 14804 ₽",
+    )
+
+    kept, removed = filter_candidates_for_manifest([exact, wrong], manifest)
+
+    assert kept == [exact]
+    assert removed == 1

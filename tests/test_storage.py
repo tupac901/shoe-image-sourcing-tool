@@ -29,6 +29,7 @@ def test_manifest_round_trip(tmp_path):
     loaded = load_manifest(run_dir)
     assert loaded.run_id == manifest.run_id
     assert loaded.logs == ["started"]
+    assert not (run_dir / "manifest.json.tmp").exists()
 
 
 @pytest.mark.anyio

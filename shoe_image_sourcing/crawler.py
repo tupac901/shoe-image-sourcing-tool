@@ -183,6 +183,21 @@ def should_accept_candidate_for_manifest(
     return should_accept_candidate_match(candidate, text_score, visual_score, profile_score)
 
 
+def filter_candidates_for_manifest(candidates: list[ImageCandidate], manifest: RunManifest) -> tuple[list[ImageCandidate], int]:
+    if not manifest.facts.sku:
+        return candidates, 0
+    kept: list[ImageCandidate] = []
+    removed = 0
+    for candidate in candidates:
+        if candidate.platform == "poizon_visual" and not has_exact_sku_match(candidate, manifest):
+            candidate.status_labels.append("visual_mismatch")
+            candidate.status_labels.append("sku_mismatch")
+            removed += 1
+            continue
+        kept.append(candidate)
+    return kept, removed
+
+
 def should_accept_candidate_match(candidate: ImageCandidate, text_score: int, visual_score: int, profile_score: int) -> bool:
     generic_search_candidate = is_generic_search_candidate(candidate)
     strong_text_match = text_score >= 10 and (visual_score >= 20 or profile_score >= 45)
@@ -354,6 +369,9 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
                     candidates = await adapter.search(query, limit=search_limit, timeout=FAST_PLATFORM_TIMEOUT_SECONDS)
                     if platform == "bing_images":
                         candidates = sorted(candidates, key=lambda candidate: text_relevance_score(candidate, manifest), reverse=True)
+                    candidates, prefiltered = filter_candidates_for_manifest(candidates, manifest)
+                    if prefiltered:
+                        manifest.logs.append(f"{platform}: skipped {prefiltered} non-exact sku candidates before download")
                     if not any(candidate.image_url or candidate.local_original_path for candidate in candidates):
                         manifest.logs.append(f"{platform}: search-page only for {query}, skipped gallery placeholders")
                         platform_total += len(candidates)

@@ -29,10 +29,13 @@ def create_run(
 
 
 def save_manifest(manifest: RunManifest, run_dir: Path) -> None:
-    (run_dir / "manifest.json").write_text(
+    manifest_path = run_dir / "manifest.json"
+    temp_path = run_dir / "manifest.json.tmp"
+    temp_path.write_text(
         manifest.model_dump_json(indent=2),
         encoding="utf-8",
     )
+    temp_path.replace(manifest_path)
 
 
 def load_manifest(run_dir: Path) -> RunManifest:
