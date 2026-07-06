@@ -15,7 +15,7 @@ from .storage import create_run, load_manifest, save_manifest
 
 
 app = FastAPI(title="Shoe Image Sourcing Tool")
-APP_VERSION = "20260706-poizon-native-image-search-2"
+APP_VERSION = "20260706-poizon-native-image-search-3"
 
 STATIC_DIR = Path(__file__).parent / "static"
 if STATIC_DIR.exists():

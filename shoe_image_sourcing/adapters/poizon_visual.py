@@ -4,9 +4,11 @@ from hashlib import sha1
 import json
 from pathlib import Path
 import re
+import tempfile
 from typing import Any
 
 import httpx
+from PIL import Image
 
 from shoe_image_sourcing.models import ImageCandidate
 
@@ -68,6 +70,24 @@ def _poizon_url(value: str) -> str:
     if value.startswith("/"):
         return "https://poizon.ru" + value
     return value
+
+
+def _prepare_poizon_upload_image(path: Path) -> tuple[Path, bool]:
+    if path.suffix.lower() in {".jpg", ".jpeg"}:
+        return path, False
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+    temp_path = Path(temp_file.name)
+    temp_file.close()
+    try:
+        with Image.open(path) as image:
+            image = image.convert("RGBA")
+            background = Image.new("RGBA", image.size, "WHITE")
+            background.alpha_composite(image)
+            background.convert("RGB").save(temp_path, "JPEG", quality=94)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
+    return temp_path, True
 
 
 def extract_poizon_candidates(payload: dict[str, Any], query: str) -> list[ImageCandidate]:
@@ -152,7 +172,7 @@ class PoizonVisualAdapter(PlatformAdapter):
             return response.json()
 
     async def _fetch_products_by_image(self, image_path: str | Path, limit: int, timeout: float) -> dict[str, Any]:
-        path = Path(image_path)
+        path, should_delete = _prepare_poizon_upload_image(Path(image_path))
         operations = {
             "operationName": "imageSearch",
             "variables": {
@@ -169,14 +189,18 @@ class PoizonVisualAdapter(PlatformAdapter):
         }
         headers = _headers()
         headers["Apollo-Require-Preflight"] = "true"
-        async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=timeout) as client:
-            response = await client.post(POIZON_GRAPHQL_URL, files=files)
-            response.raise_for_status()
-            payload = response.json()
-            if payload.get("errors"):
-                message = str((payload["errors"][0] or {}).get("message") or "poizon image search error")
-                raise RuntimeError(message)
-            return payload
+        try:
+            async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=timeout) as client:
+                response = await client.post(POIZON_GRAPHQL_URL, files=files)
+                response.raise_for_status()
+                payload = response.json()
+                if payload.get("errors"):
+                    message = str((payload["errors"][0] or {}).get("message") or "poizon image search error")
+                    raise RuntimeError(message)
+                return payload
+        finally:
+            if should_delete:
+                path.unlink(missing_ok=True)
 
     def _fallback_candidate(self, query: str, reason: str) -> ImageCandidate:
         digest = sha1(f"poizon_visual:{query}:{reason}".encode("utf-8")).hexdigest()[:16]

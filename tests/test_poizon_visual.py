@@ -1,6 +1,12 @@
 import pytest
 
-from shoe_image_sourcing.adapters.poizon_visual import PoizonVisualAdapter, extract_poizon_candidates
+from PIL import Image
+
+from shoe_image_sourcing.adapters.poizon_visual import (
+    PoizonVisualAdapter,
+    _prepare_poizon_upload_image,
+    extract_poizon_candidates,
+)
 from shoe_image_sourcing.config import OPTIONAL_PLATFORMS
 
 
@@ -151,3 +157,20 @@ async def test_poizon_visual_adapter_search_by_image_uses_poizon_image_query(mon
 
     assert candidates[0].source_page_url == "https://poizon.ru/product/1021a463-001"
     assert "poizon_visual_image_search_result" in candidates[0].status_labels
+
+
+def test_prepare_poizon_upload_image_converts_non_jpeg_to_jpeg(tmp_path):
+    source = tmp_path / "shoe.webp"
+    Image.new("RGBA", (16, 16), (255, 255, 255, 0)).save(source, "WEBP")
+
+    prepared, should_delete = _prepare_poizon_upload_image(source)
+
+    try:
+        assert should_delete
+        assert prepared.suffix == ".jpg"
+        with Image.open(prepared) as image:
+            assert image.format == "JPEG"
+            assert image.mode == "RGB"
+    finally:
+        if should_delete:
+            prepared.unlink(missing_ok=True)
