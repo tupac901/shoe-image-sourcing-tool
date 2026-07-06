@@ -1,5 +1,6 @@
 import pytest
 
+from datetime import datetime
 from PIL import Image
 
 from shoe_image_sourcing.adapters.poizon_visual import (
@@ -8,6 +9,11 @@ from shoe_image_sourcing.adapters.poizon_visual import (
     extract_poizon_candidates,
 )
 from shoe_image_sourcing.config import OPTIONAL_PLATFORMS
+from shoe_image_sourcing.crawler import (
+    is_poizon_visual_low_feature_match,
+    should_accept_candidate_for_manifest,
+)
+from shoe_image_sourcing.models import ProductFacts, RunManifest
 
 
 def test_optional_platforms_include_poizon_visual():
@@ -186,3 +192,51 @@ def test_prepare_poizon_upload_image_always_reencodes_to_jpeg(tmp_path, suffix, 
     finally:
         if should_delete:
             prepared.unlink(missing_ok=True)
+
+
+@pytest.mark.parametrize(
+    ("profile_score", "feature_score"),
+    [
+        (46, 3),
+        (66, 2),
+    ],
+)
+def test_poizon_image_search_keeps_strong_shape_match_with_low_feature_score(profile_score, feature_score):
+    payload = {
+        "data": {
+            "searchProducts": {
+                "data": [
+                    {
+                        "id": "example",
+                        "name": "Poizon visual match",
+                        "brandLabel": "Brand",
+                        "url": "/product/example",
+                        "images": [{"url": "https://img.poizon.ru/example.jpg"}],
+                    }
+                ]
+            }
+        }
+    }
+    candidate = extract_poizon_candidates(payload, "uploaded image")[0]
+    manifest = RunManifest(
+        run_id="test",
+        created_at=datetime(2026, 7, 6),
+        facts=ProductFacts(),
+        queries=[],
+        platforms=["poizon_visual"],
+    )
+
+    assert should_accept_candidate_for_manifest(
+        candidate,
+        manifest,
+        text_score=0,
+        visual_score=90,
+        profile_score=profile_score,
+        feature_score=feature_score,
+    )
+    assert is_poizon_visual_low_feature_match(
+        candidate,
+        visual_score=90,
+        profile_score=profile_score,
+        feature_score=feature_score,
+    )
