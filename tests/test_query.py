@@ -1,6 +1,16 @@
+from pathlib import Path
+
+from shoe_image_sourcing.adapters.search_pages import build_search_url
 from shoe_image_sourcing.config import DEFAULT_PLATFORMS, OPTIONAL_PLATFORMS, SUPPORTED_IMAGE_TYPES
 from shoe_image_sourcing.models import ProductFacts
 from shoe_image_sourcing.query import enrich_product_facts, generate_queries
+
+
+def test_image_only_page_shows_checked_platforms():
+    html = (Path(__file__).resolve().parents[1] / "shoe_image_sourcing" / "static" / "index.html").read_text(encoding="utf-8")
+
+    for platform in ["poizon_visual", "kr_poizon", "wildberries", "ozon"]:
+        assert f'value="{platform}" checked' in html
 
 
 def test_platform_defaults_include_ozon_reference_sources():
@@ -9,7 +19,20 @@ def test_platform_defaults_include_ozon_reference_sources():
 
 
 def test_optional_platforms_are_disabled_by_default():
-    assert all(not platform.enabled_by_default for platform in OPTIONAL_PLATFORMS)
+    enabled = {platform.name for platform in OPTIONAL_PLATFORMS if platform.enabled_by_default}
+    assert {"poizon_visual", "kr_poizon"}.issubset(enabled)
+
+
+def test_multi_platform_image_search_defaults_are_enabled():
+    default_enabled = {platform.name for platform in DEFAULT_PLATFORMS if platform.enabled_by_default}
+    optional_enabled = {platform.name for platform in OPTIONAL_PLATFORMS if platform.enabled_by_default}
+
+    assert {"wildberries", "ozon"}.issubset(default_enabled)
+    assert {"poizon_visual", "kr_poizon"}.issubset(optional_enabled)
+
+
+def test_kr_poizon_search_url_is_supported():
+    assert build_search_url("kr_poizon", "Asics Gel Kayano").startswith("https://kr.poizon.com/search?keyword=Asics+Gel+Kayano")
 
 
 def test_avif_uploads_are_supported():

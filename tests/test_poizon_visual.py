@@ -21,7 +21,7 @@ def test_optional_platforms_include_poizon_visual():
     platform = next((item for item in OPTIONAL_PLATFORMS if item.name == "poizon_visual"), None)
 
     assert platform is not None
-    assert platform.enabled_by_default is False
+    assert platform.enabled_by_default is True
     assert platform.speed_tier == "deep"
 
 

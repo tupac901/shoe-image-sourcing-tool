@@ -369,10 +369,13 @@ def image_first_processed_count(manifest: RunManifest) -> int:
 
 
 def ensure_image_first_platforms(manifest: RunManifest, has_reference_image: bool) -> None:
-    if not has_reference_image or "yandex_reverse_image" not in manifest.platforms:
+    if not has_reference_image:
         return
-    manifest.platforms = [platform for platform in manifest.platforms if platform != "yandex_reverse_image"]
-    manifest.platforms.insert(0, "yandex_reverse_image")
+    priority = [platform for platform in ["poizon_visual", "yandex_reverse_image"] if platform in manifest.platforms]
+    if not priority:
+        return
+    rest = [platform for platform in manifest.platforms if platform not in priority]
+    manifest.platforms = [*priority, *rest]
 
 
 def should_skip_fallback(manifest: RunManifest) -> bool:
@@ -566,6 +569,10 @@ def poizon_visual_generic_reverse_candidates(candidates: list[ImageCandidate], l
 def platform_queries_for_manifest(platform: str, manifest: RunManifest, max_queries_per_platform: int) -> list[str]:
     if platform == "poizon_visual":
         return []
+    if platform in {"kr_poizon", "wildberries", "ozon"}:
+        image_queries = marketplace_queries_from_visual_candidates(manifest)
+        if image_queries:
+            return image_queries[:max_queries_per_platform or 3]
     if platform == "yandex_reverse_image":
         if manifest.queries:
             return manifest.queries[:1]
@@ -576,6 +583,35 @@ def platform_queries_for_manifest(platform: str, manifest: RunManifest, max_quer
         )
         return [fallback or "reference image"]
     return manifest.queries[:max_queries_per_platform]
+
+
+def marketplace_queries_from_visual_candidates(manifest: RunManifest, limit: int = 4) -> list[str]:
+    queries: list[str] = []
+    seen: set[str] = set()
+    for candidate in manifest.candidates:
+        if candidate.platform != "poizon_visual" or not candidate.local_processed_path:
+            continue
+        title = clean_marketplace_query(candidate.title or "")
+        if not title:
+            continue
+        normalized = title.lower()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        queries.append(title)
+        if len(queries) >= limit:
+            break
+    return queries
+
+
+def clean_marketplace_query(title: str) -> str:
+    primary = html.unescape(title).split("|", 1)[0]
+    primary = re.sub(r"\b\d+(\.\d+)?\s*(rub|₽|usd|\$)\b", " ", primary, flags=re.IGNORECASE)
+    primary = re.sub(r"[^0-9A-Za-zА-Яа-яЁё가-힣一-龥' -]+", " ", primary)
+    primary = " ".join(primary.split())
+    if len(primary) < 4 or primary.lower() in {"poizon visual reverse image match", "uploaded image"}:
+        return ""
+    return primary[:120]
 
 
 def download_bing_images(query: str, output_dir: Path, limit: int = FALLBACK_LIMIT_PER_QUERY) -> Path:
@@ -800,6 +836,7 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
                         manifest.logs.append(f"{platform}: skipped {prefiltered} non-exact sku candidates before download")
                     if not any(candidate.image_url or candidate.local_original_path for candidate in candidates):
                         manifest.logs.append(f"{platform}: search-page only for {query}, skipped gallery placeholders")
+                        manifest.candidates.extend(candidates)
                         platform_total += len(candidates)
                         continue
                     for candidate in candidates:

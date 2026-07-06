@@ -47,7 +47,7 @@ def test_poizon_visual_does_not_auto_add_yandex_reverse(tmp_path):
     assert manifest.platforms == ["poizon_visual"]
 
 
-def test_selected_yandex_reverse_runs_before_poizon_visual(tmp_path):
+def test_selected_poizon_visual_runs_before_text_platforms(tmp_path):
     manifest, _ = create_run(
         ProductFacts(brand="Asics"),
         ["Asics shoe"],
@@ -57,7 +57,7 @@ def test_selected_yandex_reverse_runs_before_poizon_visual(tmp_path):
 
     ensure_image_first_platforms(manifest, has_reference_image=True)
 
-    assert manifest.platforms == ["yandex_reverse_image", "poizon_visual"]
+    assert manifest.platforms == ["poizon_visual", "yandex_reverse_image"]
 
 
 def test_image_first_skips_bing_fallback_after_reverse_matches(tmp_path):
@@ -82,7 +82,8 @@ async def test_collect_candidates_marks_ozon_reference(tmp_path):
     result = await collect_candidates(manifest, run_dir)
     assert result.status == "complete"
     assert any("ozon: search step done" in log for log in result.logs)
-    assert all("search_page_only" not in candidate.status_labels for candidate in result.candidates)
+    assert any("search_page_only" in candidate.status_labels for candidate in result.candidates)
+    assert all(candidate.platform == "ozon" for candidate in result.candidates)
 
 
 @pytest.mark.anyio
@@ -252,7 +253,7 @@ def test_platforms_endpoint_returns_defaults():
     assert any(platform["name"] == "ozon" for platform in data["default"])
 
 
-def test_create_run_accepts_image_only_and_defaults_to_poizon_visual(monkeypatch, tmp_path):
+def test_create_run_accepts_image_only_and_defaults_to_multi_platforms(monkeypatch, tmp_path):
     monkeypatch.setattr(app_module, "OUTPUT_ROOT", tmp_path)
 
     async def fake_collect_candidates(manifest, run_dir, limit_per_platform=6):
@@ -273,7 +274,7 @@ def test_create_run_accepts_image_only_and_defaults_to_poizon_visual(monkeypatch
     assert response.status_code == 200
     run_id = response.json()["run_id"]
     run = client.get(f"/api/runs/{run_id}").json()
-    assert run["platforms"] == ["poizon_visual"]
+    assert run["platforms"] == ["poizon_visual", "kr_poizon", "wildberries", "ozon"]
     assert run["facts"]["brand"] is None
     assert run["facts"]["model"] is None
     assert run["facts"]["sku"] is None

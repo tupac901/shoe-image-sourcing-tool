@@ -15,7 +15,8 @@ from .storage import create_run, load_manifest, save_manifest
 
 
 app = FastAPI(title="Shoe Image Sourcing Tool")
-APP_VERSION = "20260706-poizon-visual-crop-match-1"
+APP_VERSION = "20260707-multi-platform-checkboxes-1"
+IMAGE_ONLY_DEFAULT_PLATFORMS = ["poizon_visual", "kr_poizon", "wildberries", "ozon"]
 
 STATIC_DIR = Path(__file__).parent / "static"
 if STATIC_DIR.exists():
@@ -56,7 +57,7 @@ async def create_crawl_run(
     sku: str | None = Form(None),
     color: str | None = Form(None),
     keywords: str | None = Form(None),
-    platforms: str = Form("poizon_visual"),
+    platforms: str = Form(",".join(IMAGE_ONLY_DEFAULT_PLATFORMS)),
 ):
     if image.content_type not in SUPPORTED_IMAGE_TYPES:
         raise HTTPException(status_code=400, detail="Only JPEG, PNG, WebP, and AVIF images are supported")
@@ -67,7 +68,7 @@ async def create_crawl_run(
 
     selected_platforms = [item.strip() for item in platforms.split(",") if item.strip()]
     if not selected_platforms:
-        selected_platforms = ["poizon_visual"]
+        selected_platforms = IMAGE_ONLY_DEFAULT_PLATFORMS.copy()
     queries = generate_queries(facts)
     manifest, run_dir = create_run(facts, queries, selected_platforms, OUTPUT_ROOT)
 

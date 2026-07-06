@@ -17,6 +17,7 @@ from .base import PlatformAdapter
 SEARCH_PATTERNS = {
     "bing_images": "https://www.bing.com/images/search?q={query}",
     "wildberries": "https://www.wildberries.ru/catalog/0/search.aspx?search={query}",
+    "kr_poizon": "https://kr.poizon.com/search?keyword={query}",
     "yandex_images": "https://yandex.com/images/search?text={query}",
     "ozon": "https://www.ozon.ru/search/?text={query}",
     "ebay": "https://www.ebay.com/sch/i.html?_nkw={query}",

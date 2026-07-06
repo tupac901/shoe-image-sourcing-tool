@@ -6,14 +6,15 @@ const summary = document.querySelector("#summary");
 const submitButton = document.querySelector("#submit-button");
 const notice = document.querySelector("#notice");
 
-const hiddenStatusLabels = new Set(["visual_mismatch", "download_failed", "search_page_only", "fetch_skipped_or_blocked"]);
+const hiddenStatusLabels = new Set(["visual_mismatch", "download_failed"]);
 const internalStatusPattern = /^(text_score|visual_score|profile_score|feature_score)_/;
 
 function isVisibleCandidate(candidate) {
   const labels = candidate.status_labels || [];
   const hidden = labels.some((label) => hiddenStatusLabels.has(label));
   const hasImage = candidate.local_processed_path || candidate.local_thumbnail_path || candidate.local_original_path || candidate.image_url;
-  return !hidden && Boolean(hasImage);
+  const hasSearchPage = candidate.source_page_url && labels.includes("search_page_only");
+  return !hidden && Boolean(hasImage || hasSearchPage);
 }
 
 function visibleCandidates(run) {
@@ -138,7 +139,11 @@ async function pollRun(runId) {
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const body = new FormData(form);
-  body.set("platforms", "poizon_visual");
+  const selectedPlatforms = Array.from(form.querySelectorAll('input[name="platforms"]:checked'))
+    .map((input) => input.value)
+    .filter(Boolean);
+  body.delete("platforms");
+  body.set("platforms", selectedPlatforms.join(",") || "poizon_visual,kr_poizon,wildberries,ozon");
 
   runTitle.textContent = "正在上传图片并创建任务...";
   summary.textContent = "系统会只根据上传图片做 Poizon Visual 搜图。";

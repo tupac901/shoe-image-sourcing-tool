@@ -145,7 +145,18 @@ button:disabled {
 .platforms {
   display: grid;
   gap: 8px;
+  border: 1px solid #dfe3e8;
+  border-radius: 8px;
+  padding: 12px 14px 14px;
   margin-bottom: 16px;
+  background: #fff;
+}
+
+.platforms legend {
+  padding: 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #202124;
 }
 
 .platforms label {
