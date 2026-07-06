@@ -159,9 +159,21 @@ async def test_poizon_visual_adapter_search_by_image_uses_poizon_image_query(mon
     assert "poizon_visual_image_search_result" in candidates[0].status_labels
 
 
-def test_prepare_poizon_upload_image_converts_non_jpeg_to_jpeg(tmp_path):
-    source = tmp_path / "shoe.webp"
-    Image.new("RGBA", (16, 16), (255, 255, 255, 0)).save(source, "WEBP")
+@pytest.mark.parametrize(
+    ("suffix", "format_name"),
+    [
+        (".jpg", "JPEG"),
+        (".png", "PNG"),
+        (".webp", "WEBP"),
+        (".avif", "AVIF"),
+    ],
+)
+def test_prepare_poizon_upload_image_always_reencodes_to_jpeg(tmp_path, suffix, format_name):
+    source = tmp_path / f"shoe{suffix}"
+    image = Image.new("RGBA", (16, 16), (255, 255, 255, 0))
+    if format_name == "JPEG":
+        image = image.convert("RGB")
+    image.save(source, format_name)
 
     prepared, should_delete = _prepare_poizon_upload_image(source)
 

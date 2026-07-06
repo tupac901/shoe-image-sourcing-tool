@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 from PIL import Image
 
+from shoe_image_sourcing import image_formats  # noqa: F401
 from shoe_image_sourcing.models import ImageCandidate
 
 from .base import PlatformAdapter
@@ -73,8 +74,6 @@ def _poizon_url(value: str) -> str:
 
 
 def _prepare_poizon_upload_image(path: Path) -> tuple[Path, bool]:
-    if path.suffix.lower() in {".jpg", ".jpeg"}:
-        return path, False
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
     temp_path = Path(temp_file.name)
     temp_file.close()
