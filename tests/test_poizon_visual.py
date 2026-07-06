@@ -201,7 +201,7 @@ def test_prepare_poizon_upload_image_always_reencodes_to_jpeg(tmp_path, suffix, 
         (66, 2),
     ],
 )
-def test_poizon_image_search_keeps_strong_shape_match_with_low_feature_score(profile_score, feature_score):
+def test_poizon_image_search_rejects_low_feature_shape_only_match(profile_score, feature_score):
     payload = {
         "data": {
             "searchProducts": {
@@ -226,7 +226,7 @@ def test_poizon_image_search_keeps_strong_shape_match_with_low_feature_score(pro
         platforms=["poizon_visual"],
     )
 
-    assert should_accept_candidate_for_manifest(
+    assert not should_accept_candidate_for_manifest(
         candidate,
         manifest,
         text_score=0,

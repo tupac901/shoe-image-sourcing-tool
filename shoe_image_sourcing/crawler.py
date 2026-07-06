@@ -260,14 +260,7 @@ def should_accept_candidate_for_manifest(
                 return True
             if feature_score >= 18 and visual_score >= 70 and profile_score >= 45:
                 return True
-            if manifest.facts.brand or manifest.facts.model or manifest.facts.sku:
-                return False
-            # Poizon's native image search can return the right product for screenshots,
-            # watermarked images, or catalog crops where ORB feature overlap is low.
-            # Keep the best shape/profile matches visible instead of reporting "not found".
-            return visual_score >= 90 and (
-                (profile_score >= 55 and feature_score >= 2) or (profile_score >= 40 and feature_score >= 3)
-            )
+            return False
         if is_visual_fallback_candidate(candidate):
             if is_poizon_sku_search_result(candidate):
                 return (visual_score >= 78 and profile_score >= 50) or (visual_score >= 90 and profile_score >= 45)
@@ -292,10 +285,8 @@ def is_poizon_visual_low_feature_match(
         and is_poizon_visual_hint_result(candidate)
         and feature_score < 18
         and visual_score >= 90
-        and (
-            (profile_score >= 55 and feature_score >= 2)
-            or (profile_score >= 40 and feature_score >= 3)
-        )
+        and profile_score >= 40
+        and feature_score >= 2
     )
 
 
@@ -926,15 +917,16 @@ async def download_and_process_one(
             candidate.status_labels.append("visual_mismatch")
             manifest.logs.append(f"{candidate.platform}: rejected non-product title {candidate.title}")
             return False
+        low_feature_poizon_match = is_poizon_visual_low_feature_match(candidate, visual_score, profile_score, feature_score)
         if not should_accept_candidate_for_manifest(candidate, manifest, text_score, visual_score, profile_score, feature_score):
             candidate.status_labels.append("visual_mismatch")
+            if low_feature_poizon_match:
+                candidate.status_labels.append("poizon_visual_low_feature_match")
+                candidate.status_labels.append("low_confidence_rejected")
             manifest.logs.append(
-                f"{candidate.platform}: rejected image {original_path.name} text_score={text_score} visual_score={visual_score} profile_score={profile_score} feature_score={feature_score}"
+                f"{candidate.platform}: rejected {'low-confidence ' if low_feature_poizon_match else ''}image {original_path.name} text_score={text_score} visual_score={visual_score} profile_score={profile_score} feature_score={feature_score}"
             )
             return False
-        if is_poizon_visual_low_feature_match(candidate, visual_score, profile_score, feature_score):
-            candidate.status_labels.append("poizon_visual_low_feature_match")
-            candidate.status_labels.append("manual_review_recommended")
         thumb_path = run_dir / "thumbnails" / f"{candidate.id}.jpg"
         processed_path = run_dir / "processed_3x4" / f"{candidate.id}.jpg"
         make_thumbnail(original_path, thumb_path)
