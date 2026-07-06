@@ -487,7 +487,7 @@ def test_poizon_visual_direct_reverse_candidates_keep_poizon_images_only():
         ImageCandidate(
             id="poizon",
             platform="yandex_reverse_image",
-            source_page_url="https://yandex.ru/images/search",
+            source_page_url="https://poizon.ru/product/1201a325-001",
             image_url="https://cdn.poizon.com/pro-img/origin-img/20251209/example.jpg",
             title="yandex_reverse_image image for reference image",
         ),
@@ -504,9 +504,24 @@ def test_poizon_visual_direct_reverse_candidates_keep_poizon_images_only():
 
     assert len(direct) == 1
     assert direct[0].platform == "poizon_visual"
+    assert direct[0].source_page_url == "https://poizon.ru/product/1201a325-001"
     assert direct[0].image_url == "https://cdn.poizon.com/pro-img/origin-img/20251209/example.jpg"
     assert "poizon_visual_hint_result" in direct[0].status_labels
     assert "poizon_direct_reverse_image" in direct[0].status_labels
+
+
+def test_poizon_visual_direct_reverse_candidates_reject_yandex_source_links():
+    candidates = [
+        ImageCandidate(
+            id="poizon-cdn-only",
+            platform="yandex_reverse_image",
+            source_page_url="https://yandex.ru/images/search?rpt=imageview",
+            image_url="https://cdn.poizon.com/pro-img/origin-img/20251209/example.jpg",
+            title="yandex_reverse_image image for reference image",
+        )
+    ]
+
+    assert poizon_visual_direct_reverse_candidates(candidates) == []
 
 
 def test_poizon_visual_generic_reverse_candidates_keep_image_results_from_reverse_search():

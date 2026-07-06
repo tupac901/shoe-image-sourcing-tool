@@ -493,10 +493,11 @@ def poizon_visual_direct_reverse_candidates(candidates: list[ImageCandidate], li
     seen: set[str] = set()
     for candidate in candidates:
         image_url = candidate.image_url or ""
+        source_page_url = candidate.source_page_url or ""
         if not image_url:
             continue
         lowered = image_url.lower()
-        if "poizon." not in lowered and "poizon.ru" not in lowered:
+        if not source_page_url.lower().startswith("https://poizon.ru/product/"):
             continue
         if image_url in seen:
             continue
@@ -505,7 +506,7 @@ def poizon_visual_direct_reverse_candidates(candidates: list[ImageCandidate], li
             ImageCandidate(
                 id=hashlib.sha1(f"poizon_visual:reverse:{image_url}".encode("utf-8")).hexdigest()[:16],
                 platform="poizon_visual",
-                source_page_url=image_url,
+                source_page_url=source_page_url,
                 image_url=image_url,
                 title=candidate.title if candidate.title and not candidate.title.startswith("yandex_reverse_image image for ") else "Poizon visual reverse image match",
                 status_labels=["poizon_visual_hint_result", "poizon_direct_reverse_image"],
@@ -686,6 +687,10 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
                 poizon_direct_reverse = poizon_visual_direct_reverse_candidates(hint_candidates)
             if not poizon_visual_hints and not poizon_direct_reverse:
                 poizon_generic_reverse = poizon_visual_generic_reverse_candidates(hint_candidates)
+                if poizon_generic_reverse:
+                    manifest.logs.append(
+                        f"poizon_visual: ignored {len(poizon_generic_reverse)} non-Poizon reverse image candidates; final results require poizon.ru/product links"
+                    )
             if poizon_visual_hints:
                 manifest.logs.append(f"poizon_visual: visual hint queries {poizon_visual_hints}")
                 save_manifest(manifest, run_dir)
@@ -709,17 +714,13 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
                 if rejected or removed:
                     manifest.logs.append(f"poizon_visual: removed {removed or rejected} unusable or unrelated direct reverse images")
                     save_manifest(manifest, run_dir)
-            if platform == "poizon_visual" and poizon_generic_reverse:
-                manifest.candidates.extend(poizon_generic_reverse)
-                platform_total += len(poizon_generic_reverse)
-                manifest.logs.append(f"poizon_visual: collected {len(poizon_generic_reverse)} generic reverse image candidates")
-                rejected = await download_and_process_candidates(manifest, run_dir, poizon_generic_reverse, hashes, reference_path)
-                removed = prune_rejected_candidates(manifest)
-                if rejected or removed:
-                    manifest.logs.append(f"poizon_visual: removed {removed or rejected} unusable or unrelated generic reverse images")
-                    save_manifest(manifest, run_dir)
             if platform == "poizon_visual" and not platform_queries and not poizon_direct_reverse and not poizon_generic_reverse:
                 manifest.logs.append("poizon_visual: no image-derived query found, skipped text/model/sku fallback")
+                manifest.logs.append(f"{platform}: search step done, 0 entries")
+                save_manifest(manifest, run_dir)
+                continue
+            if platform == "poizon_visual" and not platform_queries and not poizon_direct_reverse and poizon_generic_reverse:
+                manifest.logs.append("poizon_visual: no Poizon product query/link derived from uploaded image")
                 manifest.logs.append(f"{platform}: search step done, 0 entries")
                 save_manifest(manifest, run_dir)
                 continue
