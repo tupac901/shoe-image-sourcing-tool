@@ -37,7 +37,7 @@ def test_extract_poizon_candidates_from_product_list_response():
 
     assert len(candidates) == 2
     assert candidates[0].platform == "poizon_visual"
-    assert candidates[0].title == "Nike Air Force 1 Low '07 Triple White | Nike | 7818 ₽"
+    assert candidates[0].title == "Nike Air Force 1 Low '07 Triple White | Nike | 7818 RUB"
     assert candidates[0].source_page_url == "https://poizon.ru/product/cw2288-111"
     assert candidates[0].image_url == "https://img.poizon.ru/product-1.avif"
 
@@ -117,3 +117,37 @@ async def test_poizon_visual_adapter_search_uses_graphql(monkeypatch):
 
     assert len(candidates) == 1
     assert candidates[0].image_url == "https://img.poizon.ru/nb-530.avif"
+
+
+@pytest.mark.anyio
+async def test_poizon_visual_adapter_search_by_image_uses_poizon_image_query(monkeypatch, tmp_path):
+    image_path = tmp_path / "shoe.jpg"
+    image_path.write_bytes(b"fake-image")
+    payload = {
+        "data": {
+            "searchProducts": {
+                "data": [
+                    {
+                        "id": "1021a463-001",
+                        "name": "Asics Jog 100T 'Black'",
+                        "brandLabel": "Asics",
+                        "url": "/product/1021a463-001",
+                        "finalPrice": 6010,
+                        "images": [{"url": "https://static.poizon.ru/asics-jog.jpg"}],
+                    }
+                ]
+            }
+        }
+    }
+
+    async def fake_fetch(self, path, limit: int, timeout: float):
+        assert path == image_path
+        assert limit == 6
+        return payload
+
+    monkeypatch.setattr(PoizonVisualAdapter, "_fetch_products_by_image", fake_fetch)
+
+    candidates = await PoizonVisualAdapter().search_by_image(image_path, limit=6)
+
+    assert candidates[0].source_page_url == "https://poizon.ru/product/1021a463-001"
+    assert "poizon_visual_image_search_result" in candidates[0].status_labels
