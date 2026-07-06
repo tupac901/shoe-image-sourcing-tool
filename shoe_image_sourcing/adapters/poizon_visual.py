@@ -11,6 +11,7 @@ import httpx
 from PIL import Image
 
 from shoe_image_sourcing import image_formats  # noqa: F401
+from shoe_image_sourcing.image_processing import crop_subject_for_matching
 from shoe_image_sourcing.models import ImageCandidate
 
 from .base import PlatformAdapter
@@ -79,7 +80,7 @@ def _prepare_poizon_upload_image(path: Path) -> tuple[Path, bool]:
     temp_file.close()
     try:
         with Image.open(path) as image:
-            image = image.convert("RGBA")
+            image = crop_subject_for_matching(image).convert("RGBA")
             background = Image.new("RGBA", image.size, "WHITE")
             background.alpha_composite(image)
             background.convert("RGB").save(temp_path, "JPEG", quality=94)

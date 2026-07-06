@@ -17,7 +17,7 @@ from .adapters.yandex_reverse_image import YandexReverseImageAdapter
 from .config import FAST_PLATFORM_TIMEOUT_SECONDS, IMAGE_DOWNLOAD_TIMEOUT_SECONDS, MAX_IMAGES_PER_RUN
 from .dedupe import group_duplicates
 from .feature_similarity import orb_similarity_score
-from .image_processing import compute_phash, make_thumbnail, process_to_3x4
+from .image_processing import compute_phash, make_thumbnail, prepare_matching_reference, process_to_3x4
 from .models import ImageCandidate, RunManifest
 from .relevance import find_reference_image, visual_similarity_score
 from .storage import save_manifest
@@ -257,6 +257,8 @@ def should_accept_candidate_for_manifest(
             return False
         if image_only_result:
             if is_poizon_visual_numeric_hint_result(candidate) and visual_score >= 90 and profile_score >= 75 and feature_score >= 2:
+                return True
+            if feature_score >= 50 and profile_score >= 80 and visual_score >= 55:
                 return True
             if feature_score >= 18 and visual_score >= 70 and profile_score >= 45:
                 return True
@@ -675,9 +677,11 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
     try:
         hashes: dict[str, str] = {}
         reference_path = find_reference_image(run_dir)
+        match_reference_path = reference_path
         ensure_image_first_platforms(manifest, bool(reference_path))
         if reference_path:
-            manifest.visual_profile = analyze_image(reference_path)
+            match_reference_path = prepare_matching_reference(reference_path, run_dir / "input" / "_match_reference.jpg")
+            manifest.visual_profile = analyze_image(match_reference_path)
             manifest.logs.append("reference image analyzed for visual-first matching")
             save_manifest(manifest, run_dir)
 
@@ -688,7 +692,7 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
         poizon_generic_reverse: list[ImageCandidate] = []
         if reference_path and "poizon_visual" in manifest.platforms:
             poizon_image_search = await PoizonVisualAdapter().search_by_image(
-                reference_path,
+                match_reference_path,
                 limit=limit_per_platform,
                 timeout=POIZON_VISUAL_HINT_TIMEOUT_SECONDS,
             )
@@ -728,7 +732,7 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
             if platform == "poizon_visual" and poizon_image_search:
                 manifest.candidates.extend(poizon_image_search)
                 platform_total += len(poizon_image_search)
-                rejected = await download_and_process_candidates(manifest, run_dir, poizon_image_search, hashes, reference_path)
+                rejected = await download_and_process_candidates(manifest, run_dir, poizon_image_search, hashes, match_reference_path)
                 removed = prune_rejected_candidates(manifest)
                 if rejected or removed:
                     manifest.logs.append(f"poizon_visual: removed {removed or rejected} unusable or unrelated Poizon image-search images")
@@ -750,7 +754,7 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
                 manifest.candidates.extend(poizon_direct_reverse)
                 platform_total += len(poizon_direct_reverse)
                 manifest.logs.append(f"poizon_visual: collected {len(poizon_direct_reverse)} direct reverse Poizon images")
-                rejected = await download_and_process_candidates(manifest, run_dir, poizon_direct_reverse, hashes, reference_path)
+                rejected = await download_and_process_candidates(manifest, run_dir, poizon_direct_reverse, hashes, match_reference_path)
                 removed = prune_rejected_candidates(manifest)
                 if rejected or removed:
                     manifest.logs.append(f"poizon_visual: removed {removed or rejected} unusable or unrelated direct reverse images")
@@ -804,7 +808,7 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
                     manifest.candidates.extend(candidates)
                     platform_total += len(candidates)
                     manifest.logs.append(f"{platform}: collected {len(candidates)} entries for {query}")
-                    rejected = await download_and_process_candidates(manifest, run_dir, candidates, hashes, reference_path)
+                    rejected = await download_and_process_candidates(manifest, run_dir, candidates, hashes, match_reference_path)
                     removed = prune_rejected_candidates(manifest)
                     if rejected or removed:
                         manifest.logs.append(f"{platform}: removed {removed or rejected} unusable or unrelated images")
@@ -824,7 +828,7 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
                     manifest.logs.append(f"{platform}: failed for {query}: {exc}")
             manifest.logs.append(f"{platform}: search step done, {platform_total} entries")
             save_manifest(manifest, run_dir)
-        await run_image_downloader_fallback(manifest, run_dir, hashes, reference_path)
+        await run_image_downloader_fallback(manifest, run_dir, hashes, match_reference_path)
         group_duplicates(manifest.candidates, hashes)
         manifest.status = "complete"
         if processed_count(manifest) == 0:

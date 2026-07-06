@@ -14,6 +14,7 @@ from shoe_image_sourcing.crawler import (
     should_accept_candidate_for_manifest,
 )
 from shoe_image_sourcing.models import ProductFacts, RunManifest
+from shoe_image_sourcing.image_processing import crop_subject_for_matching
 
 
 def test_optional_platforms_include_poizon_visual():
@@ -194,6 +195,28 @@ def test_prepare_poizon_upload_image_always_reencodes_to_jpeg(tmp_path, suffix, 
             prepared.unlink(missing_ok=True)
 
 
+def test_crop_subject_for_matching_removes_screenshot_frame():
+    image = Image.new("RGB", (1000, 700), (232, 232, 232))
+    canvas = Image.new("RGB", (760, 460), "white")
+    # Product-like brown shoe body.
+    for x in range(190, 570):
+        for y in range(210, 310):
+            canvas.putpixel((x, y), (105, 82, 47))
+    for x in range(160, 610):
+        for y in range(300, 335):
+            canvas.putpixel((x, y), (74, 58, 34))
+    # Pale UI arrows that should not dominate the crop.
+    for x in range(620, 690):
+        for y in range(340, 390):
+            canvas.putpixel((x, y), (236, 236, 236))
+    image.paste(canvas, (120, 80))
+
+    cropped = crop_subject_for_matching(image)
+
+    assert cropped.width < 620
+    assert cropped.height < 260
+
+
 @pytest.mark.parametrize(
     ("profile_score", "feature_score"),
     [
@@ -239,4 +262,39 @@ def test_poizon_image_search_rejects_low_feature_shape_only_match(profile_score,
         visual_score=90,
         profile_score=profile_score,
         feature_score=feature_score,
+    )
+
+
+def test_poizon_image_search_accepts_strong_feature_match_with_screenshot_crop():
+    payload = {
+        "data": {
+            "searchProducts": {
+                "data": [
+                    {
+                        "id": "sf44112407",
+                        "name": "Safiya ankle boots",
+                        "brandLabel": "Safiya",
+                        "url": "/product/sf44112407",
+                        "images": [{"url": "https://img.poizon.ru/safiya.jpg"}],
+                    }
+                ]
+            }
+        }
+    }
+    candidate = extract_poizon_candidates(payload, "uploaded image")[0]
+    manifest = RunManifest(
+        run_id="test",
+        created_at=datetime(2026, 7, 6),
+        facts=ProductFacts(),
+        queries=[],
+        platforms=["poizon_visual"],
+    )
+
+    assert should_accept_candidate_for_manifest(
+        candidate,
+        manifest,
+        text_score=0,
+        visual_score=63,
+        profile_score=93,
+        feature_score=60,
     )
