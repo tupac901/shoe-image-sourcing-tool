@@ -252,6 +252,34 @@ def test_platforms_endpoint_returns_defaults():
     assert any(platform["name"] == "ozon" for platform in data["default"])
 
 
+def test_create_run_accepts_image_only_and_defaults_to_poizon_visual(monkeypatch, tmp_path):
+    monkeypatch.setattr(app_module, "OUTPUT_ROOT", tmp_path)
+
+    async def fake_collect_candidates(manifest, run_dir, limit_per_platform=6):
+        manifest.status = "complete"
+        save_manifest(manifest, run_dir)
+        return manifest
+
+    monkeypatch.setattr(app_module, "collect_candidates", fake_collect_candidates)
+    image_path = tmp_path / "shoe.jpg"
+    Image.new("RGB", (320, 240), "white").save(image_path)
+    client = TestClient(app)
+    with image_path.open("rb") as handle:
+        response = client.post(
+            "/api/runs",
+            files={"image": ("shoe.jpg", handle, "image/jpeg")},
+        )
+
+    assert response.status_code == 200
+    run_id = response.json()["run_id"]
+    run = client.get(f"/api/runs/{run_id}").json()
+    assert run["platforms"] == ["poizon_visual"]
+    assert run["facts"]["brand"] is None
+    assert run["facts"]["model"] is None
+    assert run["facts"]["sku"] is None
+
+
+@pytest.mark.skip(reason="image-only Poizon Visual no longer requires product facts")
 def test_create_run_rejects_brand_only_search(tmp_path):
     image_path = tmp_path / "shoe.jpg"
     image_path.write_bytes(b"not-a-real-image-but-upload-validation-only-checks-content-type")

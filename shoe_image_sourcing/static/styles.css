@@ -53,6 +53,22 @@ input {
   font-size: 14px;
 }
 
+.image-only-form {
+  display: grid;
+  gap: 14px;
+}
+
+.upload-box {
+  border: 1px solid #dfe3e8;
+  border-radius: 8px;
+  padding: 14px;
+  background: #fff;
+}
+
+.upload-box span {
+  font-weight: 700;
+}
+
 textarea {
   width: 100%;
   min-height: 280px;

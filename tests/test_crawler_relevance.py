@@ -7,12 +7,15 @@ from PIL import Image
 import shoe_image_sourcing.crawler as crawler
 from shoe_image_sourcing.crawler import (
     candidates_from_downloaded_images,
+    candidate_matches_numeric_visual_hint,
+    candidate_matches_visual_hint_identity,
     download_and_process_one,
     fallback_queries,
     filter_candidates_for_manifest,
     is_textually_relevant,
     platform_queries_for_manifest,
     poizon_visual_direct_reverse_candidates,
+    poizon_visual_generic_reverse_candidates,
     poizon_visual_hint_queries,
     should_accept_candidate_for_manifest,
     should_accept_candidate_match,
@@ -504,3 +507,71 @@ def test_poizon_visual_direct_reverse_candidates_keep_poizon_images_only():
     assert direct[0].image_url == "https://cdn.poizon.com/pro-img/origin-img/20251209/example.jpg"
     assert "poizon_visual_hint_result" in direct[0].status_labels
     assert "poizon_direct_reverse_image" in direct[0].status_labels
+
+
+def test_poizon_visual_generic_reverse_candidates_keep_image_results_from_reverse_search():
+    candidates = [
+        ImageCandidate(
+            id="reverse",
+            platform="yandex_reverse_image",
+            source_page_url="https://yandex.ru/images/search?rpt=imageview",
+            image_url="https://example.com/asics-side-profile.jpg",
+            title="yandex_reverse_image image for reference image",
+        ),
+        ImageCandidate(
+            id="search-ui",
+            platform="yandex_reverse_image",
+            source_page_url="https://example.com/product",
+            image_url="https://www.bing.com/rp/search-ui.png",
+            title="Browser asset",
+        ),
+    ]
+
+    generic = poizon_visual_generic_reverse_candidates(candidates)
+
+    assert len(generic) == 1
+    assert generic[0].platform == "poizon_visual"
+    assert generic[0].image_url == "https://example.com/asics-side-profile.jpg"
+    assert generic[0].title == "Visual reverse image match"
+    assert "poizon_visual_hint_result" in generic[0].status_labels
+    assert "poizon_generic_reverse_image" in generic[0].status_labels
+
+
+def test_numeric_visual_hint_requires_candidate_to_contain_image_derived_number():
+    exact = ImageCandidate(
+        id="exact",
+        platform="poizon_visual",
+        source_page_url="https://poizon.ru/product/1021a463-001",
+        image_url="https://static.poizon.ru/exact.jpg",
+        title="Asics Jog 100T 'Black' | Asics",
+    )
+    lookalike = ImageCandidate(
+        id="lookalike",
+        platform="poizon_visual",
+        source_page_url="https://poizon.ru/product/1011c089-001",
+        image_url="https://static.poizon.ru/lookalike.jpg",
+        title="Asics Jog 100 2 Low-Top Casual Running Shoes Unisex Black | Asics",
+    )
+
+    assert candidate_matches_numeric_visual_hint(exact, "ASICS JOG 100 T Low Black Soul 1021A463")
+    assert not candidate_matches_numeric_visual_hint(lookalike, "ASICS JOG 100 T Low Black Soul 1021A463")
+
+
+def test_visual_hint_identity_matches_model_phrase_not_lookalike_number():
+    exact = ImageCandidate(
+        id="exact",
+        platform="poizon_visual",
+        source_page_url="https://poizon.ru/product/1201a325-001",
+        image_url="https://static.poizon.ru/exact.jpg",
+        title="Asics Jog 100 T 'Black' | Asics | 5904 ₽",
+    )
+    lookalike = ImageCandidate(
+        id="lookalike",
+        platform="poizon_visual",
+        source_page_url="https://poizon.ru/product/1011c089-001",
+        image_url="https://static.poizon.ru/lookalike.jpg",
+        title="Asics Jog 100 2 Low-Top Casual Running Shoes Unisex Black | Asics",
+    )
+
+    assert candidate_matches_visual_hint_identity(exact, "ASICS JOG 100 T Low Black Soul 1021A463")
+    assert not candidate_matches_visual_hint_identity(lookalike, "ASICS JOG 100 T Low Black Soul 1021A463")

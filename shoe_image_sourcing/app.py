@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-
 from urllib.parse import quote_plus
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -16,7 +15,7 @@ from .storage import create_run, load_manifest, save_manifest
 
 
 app = FastAPI(title="Shoe Image Sourcing Tool")
-APP_VERSION = "20260706-poizon-image-only-retry-1"
+APP_VERSION = "20260706-poizon-image-only-ui-3"
 
 STATIC_DIR = Path(__file__).parent / "static"
 if STATIC_DIR.exists():
@@ -57,7 +56,7 @@ async def create_crawl_run(
     sku: str | None = Form(None),
     color: str | None = Form(None),
     keywords: str | None = Form(None),
-    platforms: str = Form("wildberries,yandex_images,ozon,ebay,official"),
+    platforms: str = Form("poizon_visual"),
 ):
     if image.content_type not in SUPPORTED_IMAGE_TYPES:
         raise HTTPException(status_code=400, detail="Only JPEG, PNG, WebP, and AVIF images are supported")
@@ -65,13 +64,10 @@ async def create_crawl_run(
     facts = enrich_product_facts(
         ProductFacts(product_text=product_text, brand=brand, model=model, sku=sku, color=color, keywords=keywords)
     )
-    if not any([facts.model, facts.sku, facts.keywords]):
-        raise HTTPException(
-            status_code=400,
-            detail="请至少填写型号、货号、补充关键词，或粘贴完整产品信息；只填品牌会搜到大量无关图片。",
-        )
 
     selected_platforms = [item.strip() for item in platforms.split(",") if item.strip()]
+    if not selected_platforms:
+        selected_platforms = ["poizon_visual"]
     queries = generate_queries(facts)
     manifest, run_dir = create_run(facts, queries, selected_platforms, OUTPUT_ROOT)
 
