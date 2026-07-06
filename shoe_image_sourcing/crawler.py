@@ -51,7 +51,7 @@ IMAGE_FIRST_MIN_PROCESSED = 3
 FALLBACK_LIMIT_PER_QUERY = 12
 FALLBACK_MAX_QUERIES = 3
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".avif"}
-POIZON_VISUAL_HINT_TIMEOUT_SECONDS = 15
+POIZON_VISUAL_HINT_TIMEOUT_SECONDS = 25
 VISUAL_HINT_STOP_TOKENS = {
     "ipad",
     "upload",
@@ -71,6 +71,28 @@ VISUAL_HINT_STOP_TOKENS = {
     "png",
     "webp",
     "avif",
+}
+VISUAL_HINT_BRAND_TOKENS = {
+    "adidas",
+    "asics",
+    "balenciaga",
+    "converse",
+    "fila",
+    "hoka",
+    "jordan",
+    "mizuno",
+    "newbalance",
+    "nike",
+    "onitsuka",
+    "puma",
+    "reebok",
+    "saucony",
+    "salomon",
+    "skechers",
+    "vans",
+}
+VISUAL_HINT_BRAND_DISPLAY = {
+    "newbalance": "New Balance",
 }
 
 
@@ -188,6 +210,10 @@ def is_poizon_visual_hint_result(candidate: ImageCandidate) -> bool:
     return "poizon_visual_hint_result" in candidate.status_labels
 
 
+def is_poizon_visual_numeric_hint_result(candidate: ImageCandidate) -> bool:
+    return "poizon_visual_numeric_hint" in candidate.status_labels
+
+
 def _compact(value: str | None) -> str:
     return "".join(ch for ch in (value or "").lower() if ch.isalnum())
 
@@ -222,6 +248,8 @@ def should_accept_candidate_for_manifest(
         if has_manifest_sku and not exact_sku_match and not is_visual_fallback_candidate(candidate):
             return False
         if image_only_result:
+            if is_poizon_visual_numeric_hint_result(candidate) and visual_score >= 90 and profile_score >= 75 and feature_score >= 2:
+                return True
             return feature_score >= 18 and visual_score >= 70 and profile_score >= 45
         if is_visual_fallback_candidate(candidate):
             if is_poizon_sku_search_result(candidate):
@@ -354,21 +382,27 @@ def _display_token(token: str) -> str:
     return token.capitalize()
 
 
-def poizon_visual_hint_queries(candidates: list[ImageCandidate], brand: str | None, limit: int = 3) -> list[str]:
-    if not brand:
-        return []
-    brand_lower = brand.lower()
-    hints: list[str] = []
+def poizon_visual_hint_queries(candidates: list[ImageCandidate], brand: str | None = None, limit: int = 3) -> list[str]:
+    seed_brands = {_compact(brand)} if brand else set()
+    hints: list[tuple[int, str]] = []
     seen: set[str] = set()
     for candidate in candidates:
         for haystack in [candidate.title or "", candidate.image_url or "", candidate.source_page_url or ""]:
             decoded = unquote(haystack).lower()
             chunks = re.split(r"[^a-z0-9]+", decoded)
             for index, token in enumerate(chunks):
-                if token != brand_lower:
+                compact_token = _compact(token)
+                compact_pair = _compact("".join(chunks[index : index + 2]))
+                if compact_token in VISUAL_HINT_BRAND_TOKENS or compact_token in seed_brands:
+                    brand_token = compact_token
+                    raw_start = index + 1
+                elif compact_pair in VISUAL_HINT_BRAND_TOKENS or compact_pair in seed_brands:
+                    brand_token = compact_pair
+                    raw_start = index + 2
+                else:
                     continue
                 raw = []
-                for next_token in chunks[index + 1 : index + 10]:
+                for next_token in chunks[raw_start : raw_start + 10]:
                     if not next_token or next_token in VISUAL_HINT_STOP_TOKENS:
                         continue
                     if len(next_token) > 18:
@@ -378,15 +412,48 @@ def poizon_visual_hint_queries(candidates: list[ImageCandidate], brand: str | No
                         break
                 if len(raw) < 2:
                     continue
-                hint = " ".join([brand, *[_display_token(item) for item in raw]])
+                display_brand = VISUAL_HINT_BRAND_DISPLAY.get(brand_token, _display_token(brand_token))
+                hint = " ".join([display_brand, *[_display_token(item) for item in raw]])
                 normalized = hint.lower()
                 if normalized in seen:
                     continue
                 seen.add(normalized)
-                hints.append(hint)
-                if len(hints) >= limit:
-                    return hints
-    return hints
+                score = sum(12 for item in raw if any(ch.isdigit() for ch in item)) + min(len(raw), 8)
+                hints.append((score, hint))
+    hints.sort(key=lambda item: item[0], reverse=True)
+    return [hint for _, hint in hints[:limit]]
+
+
+def is_numeric_visual_hint(query: str) -> bool:
+    return any(any(ch.isdigit() for ch in token) for token in query.split())
+
+
+def poizon_visual_direct_reverse_candidates(candidates: list[ImageCandidate], limit: int = 6) -> list[ImageCandidate]:
+    direct: list[ImageCandidate] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        image_url = candidate.image_url or ""
+        if not image_url:
+            continue
+        lowered = image_url.lower()
+        if "poizon." not in lowered and "poizon.ru" not in lowered:
+            continue
+        if image_url in seen:
+            continue
+        seen.add(image_url)
+        direct.append(
+            ImageCandidate(
+                id=hashlib.sha1(f"poizon_visual:reverse:{image_url}".encode("utf-8")).hexdigest()[:16],
+                platform="poizon_visual",
+                source_page_url=image_url,
+                image_url=image_url,
+                title=candidate.title if candidate.title and not candidate.title.startswith("yandex_reverse_image image for ") else "Poizon visual reverse image match",
+                status_labels=["poizon_visual_hint_result", "poizon_direct_reverse_image"],
+            )
+        )
+        if len(direct) >= limit:
+            break
+    return direct
 
 
 def platform_queries_for_manifest(platform: str, manifest: RunManifest, max_queries_per_platform: int) -> list[str]:
@@ -511,13 +578,25 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
 
         max_queries_per_platform = min(8, len(manifest.queries))
         poizon_visual_hints: list[str] = []
+        poizon_direct_reverse: list[ImageCandidate] = []
         if reference_path and "poizon_visual" in manifest.platforms:
             hint_candidates = await YandexReverseImageAdapter(reference_path).search(
                 "reference image",
-                limit=6,
+                limit=20,
                 timeout=POIZON_VISUAL_HINT_TIMEOUT_SECONDS,
             )
-            poizon_visual_hints = poizon_visual_hint_queries(hint_candidates, manifest.facts.brand)
+            poizon_visual_hints = poizon_visual_hint_queries(hint_candidates, limit=6)
+            poizon_direct_reverse = poizon_visual_direct_reverse_candidates(hint_candidates)
+            if not poizon_visual_hints and not poizon_direct_reverse:
+                manifest.logs.append("poizon_visual: retrying image-derived query extraction")
+                save_manifest(manifest, run_dir)
+                hint_candidates = await YandexReverseImageAdapter(reference_path).search(
+                    "reference image",
+                    limit=30,
+                    timeout=30,
+                )
+                poizon_visual_hints = poizon_visual_hint_queries(hint_candidates, limit=6)
+                poizon_direct_reverse = poizon_visual_direct_reverse_candidates(hint_candidates)
             if poizon_visual_hints:
                 manifest.logs.append(f"poizon_visual: visual hint queries {poizon_visual_hints}")
                 save_manifest(manifest, run_dir)
@@ -532,7 +611,16 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
             platform_queries = platform_queries_for_manifest(platform, manifest, max_queries_per_platform)
             if platform == "poizon_visual" and poizon_visual_hints:
                 platform_queries = [*poizon_visual_hints, *platform_queries]
-            if platform == "poizon_visual" and not platform_queries:
+            if platform == "poizon_visual" and poizon_direct_reverse:
+                manifest.candidates.extend(poizon_direct_reverse)
+                platform_total += len(poizon_direct_reverse)
+                manifest.logs.append(f"poizon_visual: collected {len(poizon_direct_reverse)} direct reverse Poizon images")
+                rejected = await download_and_process_candidates(manifest, run_dir, poizon_direct_reverse, hashes, reference_path)
+                removed = prune_rejected_candidates(manifest)
+                if rejected or removed:
+                    manifest.logs.append(f"poizon_visual: removed {removed or rejected} unusable or unrelated direct reverse images")
+                    save_manifest(manifest, run_dir)
+            if platform == "poizon_visual" and not platform_queries and not poizon_direct_reverse:
                 manifest.logs.append("poizon_visual: no image-derived query found, skipped text/model/sku fallback")
                 manifest.logs.append(f"{platform}: search step done, 0 entries")
                 save_manifest(manifest, run_dir)
@@ -551,6 +639,8 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
                         for candidate in candidates:
                             if "poizon_visual_hint_result" not in candidate.status_labels:
                                 candidate.status_labels.append("poizon_visual_hint_result")
+                            if is_numeric_visual_hint(query) and "poizon_visual_numeric_hint" not in candidate.status_labels:
+                                candidate.status_labels.append("poizon_visual_numeric_hint")
                     if platform == "bing_images":
                         candidates = sorted(candidates, key=lambda candidate: text_relevance_score(candidate, manifest), reverse=True)
                     visual_fallback_limit = 3 if platform == "poizon_visual" else 0

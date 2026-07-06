@@ -5,6 +5,8 @@ from PIL import Image
 
 from shoe_image_sourcing.adapters.yandex_reverse_image import (
     YandexReverseImageAdapter,
+    _content_type_for,
+    _prepare_yandex_upload_image,
     extract_yandex_reverse_search_url,
 )
 from shoe_image_sourcing.config import OPTIONAL_PLATFORMS
@@ -53,6 +55,22 @@ def test_extract_yandex_reverse_search_url_from_cbir_fields():
         "https://yandex.ru/images/search?"
         "rpt=imageview&cbir_id=12345%2Fabc&url=https%3A%2F%2Favatars.mds.yandex.net%2Fget-images-cbir%2Fabc%2Forig"
     )
+
+
+def test_prepare_yandex_upload_image_converts_unknown_suffix_to_jpeg(tmp_path):
+    source = tmp_path / "upload.avif"
+    Image.new("RGB", (320, 420), "white").save(source, format="JPEG")
+
+    upload_path, remove_after = _prepare_yandex_upload_image(source)
+
+    try:
+        assert upload_path.suffix == ".jpg"
+        assert remove_after is True
+        assert _content_type_for(upload_path) == "image/jpeg"
+        with Image.open(upload_path) as image:
+            assert image.size == (320, 420)
+    finally:
+        upload_path.unlink(missing_ok=True)
 
 
 def test_yandex_reverse_runs_even_without_text_queries():

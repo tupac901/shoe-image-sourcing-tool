@@ -12,6 +12,7 @@ from shoe_image_sourcing.crawler import (
     filter_candidates_for_manifest,
     is_textually_relevant,
     platform_queries_for_manifest,
+    poizon_visual_direct_reverse_candidates,
     poizon_visual_hint_queries,
     should_accept_candidate_for_manifest,
     should_accept_candidate_match,
@@ -312,6 +313,48 @@ def test_poizon_visual_hint_match_ignores_wrong_user_sku():
     )
 
 
+def test_poizon_visual_numeric_hint_accepts_black_shoe_low_feature_match():
+    manifest = _manifest(ProductFacts(brand="WrongBrand", model="Wrong Model 999", sku="WRONG-SKU-000"))
+    candidate = ImageCandidate(
+        id="candidate",
+        platform="poizon_visual",
+        source_page_url="https://poizon.ru/product/1021a463-001",
+        image_url="https://static.poizon.ru/jog-100t-black.jpg",
+        title="Asics Jog 100T 'Black' | Asics | 6010 ₽",
+        status_labels=["poizon_visual_hint_result", "poizon_visual_numeric_hint"],
+    )
+
+    assert should_accept_candidate_for_manifest(
+        candidate,
+        manifest,
+        text_score=0,
+        visual_score=100,
+        profile_score=93,
+        feature_score=6,
+    )
+
+
+def test_poizon_visual_non_numeric_hint_still_rejects_weak_feature_match():
+    manifest = _manifest(ProductFacts(brand="WrongBrand", model="Wrong Model 999", sku="WRONG-SKU-000"))
+    candidate = ImageCandidate(
+        id="candidate",
+        platform="poizon_visual",
+        source_page_url="https://poizon.ru/product/wrong",
+        image_url="https://static.poizon.ru/wrong-black.jpg",
+        title="Adidas Terrex Hyperhiker Low Kid Hiking Shoes | Adidas",
+        status_labels=["poizon_visual_hint_result"],
+    )
+
+    assert not should_accept_candidate_for_manifest(
+        candidate,
+        manifest,
+        text_score=0,
+        visual_score=100,
+        profile_score=90,
+        feature_score=5,
+    )
+
+
 @pytest.mark.anyio
 async def test_poizon_visual_hint_download_processing_ignores_wrong_user_sku(tmp_path, monkeypatch):
     monkeypatch.setattr(crawler, "visual_similarity_score", lambda reference, candidate: 100)
@@ -405,4 +448,59 @@ def test_poizon_visual_hint_queries_from_reverse_image_url():
         )
     ]
 
-    assert poizon_visual_hint_queries(candidates, "Asics") == ["Asics JOG 100S 2E Wide White Black"]
+    assert poizon_visual_hint_queries(candidates, "Asics") == ["ASICS JOG 100S 2E Wide White Black"]
+
+
+def test_poizon_visual_hint_queries_do_not_need_user_brand():
+    candidates = [
+        ImageCandidate(
+            id="hint",
+            platform="yandex_reverse_image",
+            source_page_url="https://example.com/product",
+            image_url="https://cdn.example.com/asics-gel-kayano-14-white-red-silver.jpg",
+            title="ASICS GEL-KAYANO 14 White Red Silver",
+        )
+    ]
+
+    assert poizon_visual_hint_queries(candidates) == ["ASICS GEL Kayano 14 White Red Silver"]
+
+
+def test_poizon_visual_hint_queries_detect_split_brand_tokens():
+    candidates = [
+        ImageCandidate(
+            id="hint",
+            platform="yandex_reverse_image",
+            source_page_url="https://example.com/product",
+            image_url="https://cdn.example.com/new-balance-fuelcell-propel-v5.jpg",
+            title="New Balance FuelCell Propel V5 2E Wide Black White",
+        )
+    ]
+
+    assert poizon_visual_hint_queries(candidates)[0] == "New Balance Fuelcell Propel V5 2E Wide Black White"
+
+
+def test_poizon_visual_direct_reverse_candidates_keep_poizon_images_only():
+    candidates = [
+        ImageCandidate(
+            id="poizon",
+            platform="yandex_reverse_image",
+            source_page_url="https://yandex.ru/images/search",
+            image_url="https://cdn.poizon.com/pro-img/origin-img/20251209/example.jpg",
+            title="yandex_reverse_image image for reference image",
+        ),
+        ImageCandidate(
+            id="other",
+            platform="yandex_reverse_image",
+            source_page_url="https://yandex.ru/images/search",
+            image_url="https://example.com/other.jpg",
+            title="Other image",
+        ),
+    ]
+
+    direct = poizon_visual_direct_reverse_candidates(candidates)
+
+    assert len(direct) == 1
+    assert direct[0].platform == "poizon_visual"
+    assert direct[0].image_url == "https://cdn.poizon.com/pro-img/origin-img/20251209/example.jpg"
+    assert "poizon_visual_hint_result" in direct[0].status_labels
+    assert "poizon_direct_reverse_image" in direct[0].status_labels

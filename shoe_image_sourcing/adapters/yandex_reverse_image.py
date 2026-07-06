@@ -4,10 +4,12 @@ from hashlib import sha1
 from html import unescape
 import json
 from pathlib import Path
+import tempfile
 from typing import Any
 from urllib.parse import quote_plus, urljoin
 
 import httpx
+from PIL import Image
 
 from shoe_image_sourcing.adapters.search_pages import extract_image_results
 from shoe_image_sourcing.models import ImageCandidate
@@ -83,14 +85,19 @@ class YandexReverseImageAdapter(PlatformAdapter):
         errors = []
         for upload_url in YANDEX_REVERSE_UPLOAD_HOSTS:
             try:
-                with image_path.open("rb") as image_file:
-                    files = {"upfile": (image_path.name, image_file, _content_type_for(image_path))}
-                    async with httpx.AsyncClient(headers={**headers, "Referer": upload_url}, follow_redirects=True, timeout=timeout) as client:
-                        response = await client.post(upload_url, params=params, files=files)
-                        response.raise_for_status()
-                        if response.text.lstrip().startswith("<"):
-                            raise ValueError("Yandex returned an HTML interstitial instead of JSON")
-                        return extract_yandex_reverse_search_url(response.json())
+                upload_path, remove_after = _prepare_yandex_upload_image(image_path)
+                try:
+                    with upload_path.open("rb") as image_file:
+                        files = {"upfile": (upload_path.name, image_file, _content_type_for(upload_path))}
+                        async with httpx.AsyncClient(headers={**headers, "Referer": upload_url}, follow_redirects=True, timeout=timeout) as client:
+                            response = await client.post(upload_url, params=params, files=files)
+                            response.raise_for_status()
+                            if response.text.lstrip().startswith("<"):
+                                raise ValueError("Yandex returned an HTML interstitial instead of JSON")
+                            return extract_yandex_reverse_search_url(response.json())
+                finally:
+                    if remove_after:
+                        upload_path.unlink(missing_ok=True)
             except (httpx.HTTPError, json.JSONDecodeError, ValueError) as exc:
                 errors.append(f"{upload_url}: {exc}")
         raise ValueError("; ".join(errors))
@@ -128,3 +135,18 @@ def _content_type_for(path: Path) -> str:
     if suffix == ".webp":
         return "image/webp"
     return "application/octet-stream"
+
+
+def _prepare_yandex_upload_image(path: Path) -> tuple[Path, bool]:
+    if _content_type_for(path) != "application/octet-stream":
+        return path, False
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+    temp_path = Path(temp_file.name)
+    temp_file.close()
+    try:
+        with Image.open(path) as image:
+            image.convert("RGB").save(temp_path, "JPEG", quality=94)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
+    return temp_path, True
