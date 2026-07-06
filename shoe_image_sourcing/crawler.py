@@ -724,6 +724,10 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
                     manifest.logs.append(f"{platform}: target image count reached ({platform_processed})")
                     save_manifest(manifest, run_dir)
                     continue
+                if not platform_queries and not poizon_direct_reverse:
+                    manifest.logs.append(f"{platform}: search step done, {platform_total} entries")
+                    save_manifest(manifest, run_dir)
+                    continue
             if platform == "poizon_visual" and poizon_direct_reverse:
                 manifest.candidates.extend(poizon_direct_reverse)
                 platform_total += len(poizon_direct_reverse)

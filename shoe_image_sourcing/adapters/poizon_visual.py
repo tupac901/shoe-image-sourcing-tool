@@ -131,7 +131,7 @@ class PoizonVisualAdapter(PlatformAdapter):
         candidates = extract_poizon_candidates(payload, "uploaded image")
         if not candidates:
             return [self._fallback_candidate("uploaded image", "poizon_image_search_no_images")]
-        return candidates[: max(limit * 4, limit)]
+        return candidates[: max(limit * 2, limit)]
 
     async def _fetch_products(self, query: str, limit: int, timeout: float) -> dict[str, Any]:
         variables = {
