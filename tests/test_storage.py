@@ -10,7 +10,10 @@ from shoe_image_sourcing.crawler import (
     collect_candidates,
     download_and_process_candidates,
     ensure_image_first_platforms,
+    extract_duckduckgo_kr_poizon_links,
     is_textually_relevant,
+    kr_poizon_product_link_matches_query,
+    kr_poizon_queries_from_reverse_candidates,
     marketplace_visual_reverse_candidates,
     prune_rejected_candidates,
     should_accept_candidate_for_manifest,
@@ -112,6 +115,51 @@ def test_marketplace_reverse_candidate_accepts_high_visual_mid_profile_match(tmp
         visual_score=90,
         profile_score=70,
         feature_score=12,
+    )
+
+
+def test_extract_duckduckgo_kr_poizon_links_unwraps_result_urls():
+    html = """
+    <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fkr.poizon.com%2Fproduct%2Fnike-ja-morant-3-rebound-grip-basketball-shoes-men-s-8300070295959421&rut=abc">
+      kr.poizon.com/product/nike-ja-morant-3-rebound-grip-basketball-shoes-men-s-8300070295959421
+    </a>
+    """
+
+    assert extract_duckduckgo_kr_poizon_links(html) == [
+        "https://kr.poizon.com/product/nike-ja-morant-3-rebound-grip-basketball-shoes-men-s-8300070295959421"
+    ]
+
+
+def test_kr_poizon_queries_from_reverse_candidates_uses_image_hint_titles():
+    candidates = [
+        ImageCandidate(
+            id="hint",
+            platform="yandex_reverse_image",
+            source_page_url="https://cdek.shopping/p/30722062/basketbol-nye-krossovki-ja-morant-3-grip-rebound",
+            image_url="https://example.com/ja3.webp",
+            title="Баскетбольные кроссовки Ja Morant 3 Grip Rebound мужские Nike, зеленый купить выгодно",
+        )
+    ]
+
+    queries = kr_poizon_queries_from_reverse_candidates(candidates)
+
+    assert queries
+    assert "Nike Ja 3 Grip Rebound" in queries
+    assert "купить" not in queries[0].lower()
+
+
+def test_kr_poizon_product_link_must_match_image_hint_identity():
+    assert kr_poizon_product_link_matches_query(
+        "https://kr.poizon.com/product/nike-ja-morant-3-rebound-grip-basketball-shoes-men-s-8300070295959421",
+        "Nike Ja 3 Grip Rebound",
+    )
+    assert not kr_poizon_product_link_matches_query(
+        "https://kr.poizon.com/product/bandai-hg-1-144-extraordinary-strike-freedom-gundam-seed-model-kits-596532848",
+        "Nike Ja 3 Grip Rebound",
+    )
+    assert not kr_poizon_product_link_matches_query(
+        "https://kr.poizon.com/product/8300075895566453",
+        "Nike Ja 3 Grip Rebound",
     )
 
 

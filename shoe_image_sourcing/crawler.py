@@ -5,7 +5,7 @@ import html
 import json
 import re
 from pathlib import Path
-from urllib.parse import quote_plus, unquote
+from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 
 import anyio
 import httpx
@@ -56,6 +56,34 @@ MARKETPLACE_PRODUCT_URL_MARKERS = {
     "kr_poizon": ("https://kr.poizon.com/",),
     "wildberries": ("wildberries.ru/catalog/",),
     "ozon": ("ozon.ru/product/", "ozon.by/product/"),
+}
+KR_POIZON_SITE_SEARCH_URL = "https://html.duckduckgo.com/html/?q={query}"
+KR_POIZON_QUERY_STOP_WORDS = {
+    "buy",
+    "price",
+    "delivery",
+    "shop",
+    "shopping",
+    "product",
+    "shoe",
+    "shoes",
+    "sneaker",
+    "sneakers",
+    "basketball",
+    "running",
+    "men",
+    "women",
+    "unisex",
+    "green",
+    "white",
+    "black",
+    "yellow",
+    "krossovki",
+    "muzhskie",
+    "kupit",
+    "cdek",
+    "unicorn",
+    "unicorngo",
 }
 POIZON_VISUAL_HINT_TIMEOUT_SECONDS = 25
 VISUAL_HINT_STOP_TOKENS = {
@@ -617,6 +645,183 @@ def marketplace_visual_reverse_candidates(
     return direct
 
 
+def extract_duckduckgo_kr_poizon_links(html_text: str, limit: int = 6) -> list[str]:
+    links: list[str] = []
+    seen: set[str] = set()
+    text = html.unescape(html_text)
+    for match in re.finditer(r'href=["\']([^"\']+)["\']', text, flags=re.IGNORECASE):
+        href = html.unescape(match.group(1))
+        if "uddg=" in href:
+            params = parse_qs(urlparse(href).query)
+            href = params.get("uddg", [href])[0]
+        href = unquote(href)
+        if href.startswith("//duckduckgo.com/l/?"):
+            params = parse_qs(urlparse("https:" + href).query)
+            href = params.get("uddg", [href])[0]
+            href = unquote(href)
+        if not href.startswith("https://kr.poizon.com/product/"):
+            continue
+        href = href.split("&rut=", 1)[0]
+        if href in seen:
+            continue
+        seen.add(href)
+        links.append(href)
+        if len(links) >= limit:
+            break
+    return links
+
+
+def kr_poizon_queries_from_reverse_candidates(candidates: list[ImageCandidate], limit: int = 8) -> list[str]:
+    queries: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        for raw in (candidate.title, candidate.source_page_url):
+            query = kr_poizon_compact_identity_query(raw or "") or clean_marketplace_query(raw or "")
+            if not query:
+                continue
+            query = re.sub(r"\b(купить|цена|доставка|россии|москве|интернет|магазине|кроссовки|basketbol nye|muzhskie)\b", " ", query, flags=re.IGNORECASE)
+            query = " ".join(query.split())
+            if len(query) < 6:
+                continue
+            for variant in kr_poizon_query_variants(query):
+                normalized = variant.lower()
+                if normalized in seen:
+                    continue
+                seen.add(normalized)
+                queries.append(variant)
+                if len(queries) >= limit:
+                    return queries
+            break
+    return queries
+
+
+def kr_poizon_query_variants(query: str) -> list[str]:
+    variants: list[str] = []
+    tokens = re.findall(r"[A-Za-z0-9][A-Za-z0-9'-]*", query)
+    lower_tokens = [token.lower() for token in tokens]
+    if {"nike", "ja", "3", "grip", "rebound"}.issubset(set(lower_tokens)):
+        variants.append("Nike Ja 3 Grip Rebound")
+    if "nike" in lower_tokens:
+        brand_first = [tokens[lower_tokens.index("nike")], *[token for index, token in enumerate(tokens) if index != lower_tokens.index("nike")]]
+        variants.append(" ".join(brand_first[:6]))
+    variants.append(" ".join(tokens[:6]) if tokens else query)
+    compact: list[str] = []
+    seen: set[str] = set()
+    for variant in variants:
+        variant = " ".join(variant.split())
+        if not variant or variant.lower() in seen:
+            continue
+        seen.add(variant.lower())
+        compact.append(variant)
+    return compact
+
+
+def kr_poizon_compact_identity_query(text: str, limit: int = 7) -> str:
+    text = re.split(r"https?://", html.unescape(text), maxsplit=1)[0]
+    tokens: list[str] = []
+    for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9'-]*", text):
+        normalized = token.lower().strip("-'")
+        if len(normalized) < 2 and not normalized.isdigit():
+            continue
+        if normalized.isdigit() and len(normalized) >= 4:
+            continue
+        if normalized in KR_POIZON_QUERY_STOP_WORDS:
+            continue
+        if normalized in {"https", "http", "utm", "medium", "organic", "source", "yandexsmartcamera"}:
+            continue
+        if normalized not in {item.lower() for item in tokens}:
+            tokens.append(token.strip("-'"))
+        if len(tokens) >= limit:
+            break
+    return " ".join(tokens)
+
+
+def kr_poizon_identity_tokens(query: str) -> set[str]:
+    return {
+        token.lower()
+        for token in re.findall(r"[A-Za-z0-9]+", query)
+        if (len(token) >= 2 or token.isdigit()) and token.lower() not in KR_POIZON_QUERY_STOP_WORDS
+    }
+
+
+def kr_poizon_product_link_matches_query(product_link: str, query: str) -> bool:
+    path = urlparse(product_link).path.lower()
+    slug_tokens = set(re.findall(r"[a-z0-9]+", path))
+    if not slug_tokens:
+        return False
+    identity = kr_poizon_identity_tokens(query)
+    if not identity:
+        return False
+    overlap = identity & slug_tokens
+    required = 2 if len(identity) >= 2 else 1
+    return len(overlap) >= required
+
+
+async def search_kr_poizon_product_links_from_queries(
+    queries: list[str],
+    limit: int = 6,
+    timeout: float = 8,
+) -> tuple[list[str], list[str]]:
+    product_links: list[str] = []
+    seen_links: set[str] = set()
+    diagnostics: list[str] = []
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+        )
+    }
+    async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=timeout) as client:
+        for query in queries:
+            search_query = f"site:kr.poizon.com/product {query}"
+            response = await client.get(KR_POIZON_SITE_SEARCH_URL.format(query=quote_plus(search_query)))
+            response.raise_for_status()
+            raw_links = extract_duckduckgo_kr_poizon_links(response.text, limit=limit * 3)
+            matched_links = [link for link in raw_links if kr_poizon_product_link_matches_query(link, query)]
+            diagnostics.append(f"{query} -> {len(matched_links)}/{len(raw_links)}")
+            for link in matched_links:
+                if link in seen_links:
+                    continue
+                seen_links.add(link)
+                product_links.append(link)
+                if len(product_links) >= limit:
+                    return product_links, diagnostics
+    return product_links, diagnostics
+
+
+async def kr_poizon_product_candidates_from_image_hints(
+    candidates: list[ImageCandidate],
+    limit: int = 6,
+    timeout: float = 8,
+) -> tuple[list[ImageCandidate], list[str]]:
+    queries = kr_poizon_queries_from_reverse_candidates(candidates)
+    if not queries:
+        return [], []
+    product_links, diagnostics = await search_kr_poizon_product_links_from_queries(queries, limit=limit, timeout=timeout)
+    if not product_links:
+        return [], diagnostics
+    image_hints = [candidate for candidate in candidates if candidate.image_url]
+    if not image_hints:
+        return [], diagnostics
+    direct: list[ImageCandidate] = []
+    for index, product_link in enumerate(product_links):
+        source = image_hints[min(index, len(image_hints) - 1)]
+        key = f"kr_poizon:site-search:{product_link}:{source.image_url}"
+        direct.append(
+            ImageCandidate(
+                id=hashlib.sha1(key.encode("utf-8")).hexdigest()[:16],
+                platform="kr_poizon",
+                source_page_url=product_link,
+                image_url=source.image_url,
+                title=source.title or "KR Poizon visual product match",
+                status_labels=["image_reverse_product_candidate", "kr_poizon_visual_reverse_result", "kr_poizon_site_search_from_image"],
+            )
+        )
+        if len(direct) >= limit:
+            break
+    return direct, diagnostics
+
+
 def platform_queries_for_manifest(platform: str, manifest: RunManifest, max_queries_per_platform: int) -> list[str]:
     if platform == "poizon_visual":
         return []
@@ -831,6 +1036,19 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
             platform_queries = platform_queries_for_manifest(platform, manifest, max_queries_per_platform)
             if platform in MARKETPLACE_REVERSE_PLATFORMS and marketplace_reverse_candidates:
                 direct_marketplace = marketplace_visual_reverse_candidates(marketplace_reverse_candidates, platform, limit=limit_per_platform)
+                if platform == "kr_poizon" and not direct_marketplace:
+                    try:
+                        direct_marketplace, kr_diagnostics = await kr_poizon_product_candidates_from_image_hints(
+                            marketplace_reverse_candidates,
+                            limit=limit_per_platform,
+                            timeout=FAST_PLATFORM_TIMEOUT_SECONDS,
+                        )
+                        if kr_diagnostics:
+                            manifest.logs.append(f"kr_poizon: image-derived site search {kr_diagnostics}")
+                            save_manifest(manifest, run_dir)
+                    except Exception as exc:
+                        manifest.logs.append(f"kr_poizon: site product search failed from image hints: {exc}")
+                        save_manifest(manifest, run_dir)
                 if direct_marketplace:
                     manifest.candidates.extend(direct_marketplace)
                     platform_total += len(direct_marketplace)
