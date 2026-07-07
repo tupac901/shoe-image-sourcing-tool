@@ -10,18 +10,18 @@
   <main class="shell">
     <aside class="panel">
       <h1>鞋类以图搜图采集台</h1>
-      <p class="hint">上传一张鞋图，系统只根据图片本身去 Poizon Visual 查找同款，并自动过滤相似款和错款。</p>
+      <p class="hint">上传一张鞋图，系统只根据图片本身去所选平台查找商品链接和图片，并自动过滤相似款和错款。</p>
       <form id="run-form" class="image-only-form">
         <label class="upload-box">
           <span>产品图片</span>
           <input name="image" type="file" accept="image/*" required />
         </label>
         <fieldset class="platforms">
-          <legend>Search platforms</legend>
-          <label><input type="checkbox" name="platforms" value="poizon_visual" checked /> Poizon Visual <span>image</span></label>
-          <label><input type="checkbox" name="platforms" value="kr_poizon" checked /> KR Poizon <span>search</span></label>
-          <label><input type="checkbox" name="platforms" value="wildberries" checked /> WB / Wildberries <span>search</span></label>
-          <label><input type="checkbox" name="platforms" value="ozon" checked /> Ozon <span>search</span></label>
+          <legend>选择搜图平台</legend>
+          <label><input type="checkbox" name="platforms" value="poizon_visual" checked /> Poizon Visual <span>商品图</span></label>
+          <label><input type="checkbox" name="platforms" value="kr_poizon" checked /> KR Poizon <span>商品链接</span></label>
+          <label><input type="checkbox" name="platforms" value="wildberries" checked /> WB / Wildberries <span>商品链接</span></label>
+          <label><input type="checkbox" name="platforms" value="ozon" checked /> Ozon <span>商品链接</span></label>
         </fieldset>
         <button id="submit-button" type="submit">开始搜图</button>
       </form>

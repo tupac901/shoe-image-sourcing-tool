@@ -15,7 +15,7 @@ from .storage import create_run, load_manifest, save_manifest
 
 
 app = FastAPI(title="Shoe Image Sourcing Tool")
-APP_VERSION = "20260707-multi-platform-checkboxes-1"
+APP_VERSION = "20260707-marketplace-product-reverse-1"
 IMAGE_ONLY_DEFAULT_PLATFORMS = ["poizon_visual", "kr_poizon", "wildberries", "ozon"]
 
 STATIC_DIR = Path(__file__).parent / "static"

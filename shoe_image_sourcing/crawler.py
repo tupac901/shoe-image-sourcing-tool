@@ -51,6 +51,12 @@ IMAGE_FIRST_MIN_PROCESSED = 3
 FALLBACK_LIMIT_PER_QUERY = 12
 FALLBACK_MAX_QUERIES = 3
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".avif"}
+MARKETPLACE_REVERSE_PLATFORMS = {"kr_poizon", "wildberries", "ozon"}
+MARKETPLACE_PRODUCT_URL_MARKERS = {
+    "kr_poizon": ("https://kr.poizon.com/",),
+    "wildberries": ("wildberries.ru/catalog/",),
+    "ozon": ("ozon.ru/product/", "ozon.by/product/"),
+}
 POIZON_VISUAL_HINT_TIMEOUT_SECONDS = 25
 VISUAL_HINT_STOP_TOKENS = {
     "ipad",
@@ -249,6 +255,16 @@ def should_accept_candidate_for_manifest(
     profile_score: int,
     feature_score: int = 50,
 ) -> bool:
+    if "image_reverse_product_candidate" in candidate.status_labels:
+        if feature_score >= 50 and profile_score >= 80 and visual_score >= 55:
+            return True
+        if feature_score >= 18 and visual_score >= 70 and profile_score >= 45:
+            return True
+        if visual_score >= 90 and profile_score >= 65 and feature_score >= 8:
+            return True
+        if visual_score >= 90 and profile_score >= 75 and feature_score >= 2:
+            return True
+        return False
     if candidate.platform == "poizon_visual":
         image_only_result = is_poizon_visual_hint_result(candidate)
         has_manifest_sku = bool(_compact(manifest.facts.sku)) and not image_only_result
@@ -364,7 +380,7 @@ def image_first_processed_count(manifest: RunManifest) -> int:
     return sum(
         1
         for candidate in manifest.candidates
-        if candidate.local_processed_path and candidate.platform in {"yandex_reverse_image", "poizon_visual"}
+        if candidate.local_processed_path and candidate.platform in {"yandex_reverse_image", "poizon_visual", *MARKETPLACE_REVERSE_PLATFORMS}
     )
 
 
@@ -566,6 +582,41 @@ def poizon_visual_generic_reverse_candidates(candidates: list[ImageCandidate], l
     return generic
 
 
+def marketplace_visual_reverse_candidates(
+    candidates: list[ImageCandidate],
+    platform: str,
+    limit: int = 6,
+) -> list[ImageCandidate]:
+    markers = MARKETPLACE_PRODUCT_URL_MARKERS.get(platform)
+    if not markers:
+        return []
+    direct: list[ImageCandidate] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        image_url = candidate.image_url or ""
+        source_page_url = candidate.source_page_url or ""
+        source_lower = source_page_url.lower()
+        if not image_url or not any(marker in source_lower for marker in markers):
+            continue
+        key = f"{platform}:{source_page_url}:{image_url}"
+        if key in seen:
+            continue
+        seen.add(key)
+        direct.append(
+            ImageCandidate(
+                id=hashlib.sha1(key.encode("utf-8")).hexdigest()[:16],
+                platform=platform,
+                source_page_url=source_page_url,
+                image_url=image_url,
+                title=candidate.title if candidate.title and not candidate.title.startswith("yandex_reverse_image image for ") else f"{platform} visual reverse image match",
+                status_labels=["image_reverse_product_candidate", f"{platform}_visual_reverse_result"],
+            )
+        )
+        if len(direct) >= limit:
+            break
+    return direct
+
+
 def platform_queries_for_manifest(platform: str, manifest: RunManifest, max_queries_per_platform: int) -> list[str]:
     if platform == "poizon_visual":
         return []
@@ -726,6 +777,21 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
         poizon_image_search: list[ImageCandidate] = []
         poizon_direct_reverse: list[ImageCandidate] = []
         poizon_generic_reverse: list[ImageCandidate] = []
+        marketplace_reverse_candidates: list[ImageCandidate] = []
+        if reference_path and any(platform in manifest.platforms for platform in MARKETPLACE_REVERSE_PLATFORMS):
+            marketplace_reverse_candidates = await YandexReverseImageAdapter(reference_path).search(
+                "reference image",
+                limit=40,
+                timeout=POIZON_VISUAL_HINT_TIMEOUT_SECONDS,
+            )
+            manifest.logs.append(f"marketplace_reverse: collected {len(marketplace_reverse_candidates)} reverse-image site candidates")
+            sample_sources = [
+                (candidate.source_page_url or candidate.image_url or "")[:140]
+                for candidate in marketplace_reverse_candidates[:5]
+            ]
+            if sample_sources:
+                manifest.logs.append(f"marketplace_reverse: sample sources {sample_sources}")
+            save_manifest(manifest, run_dir)
         if reference_path and "poizon_visual" in manifest.platforms:
             poizon_image_search = await PoizonVisualAdapter().search_by_image(
                 match_reference_path,
@@ -763,6 +829,29 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
             platform_total = 0
             platform_processed = 0
             platform_queries = platform_queries_for_manifest(platform, manifest, max_queries_per_platform)
+            if platform in MARKETPLACE_REVERSE_PLATFORMS and marketplace_reverse_candidates:
+                direct_marketplace = marketplace_visual_reverse_candidates(marketplace_reverse_candidates, platform, limit=limit_per_platform)
+                if direct_marketplace:
+                    manifest.candidates.extend(direct_marketplace)
+                    platform_total += len(direct_marketplace)
+                    manifest.logs.append(f"{platform}: collected {len(direct_marketplace)} product-level reverse image candidates")
+                    rejected = await download_and_process_candidates(manifest, run_dir, direct_marketplace, hashes, match_reference_path)
+                    removed = prune_rejected_candidates(manifest)
+                    if rejected or removed:
+                        manifest.logs.append(f"{platform}: removed {removed or rejected} unusable or unrelated reverse image candidates")
+                        save_manifest(manifest, run_dir)
+                    platform_processed = sum(
+                        1
+                        for candidate in manifest.candidates
+                        if candidate.platform == platform and candidate.local_processed_path
+                    )
+                    if platform_processed >= target_processed_per_platform:
+                        manifest.logs.append(f"{platform}: target image count reached ({platform_processed})")
+                        save_manifest(manifest, run_dir)
+                        continue
+                else:
+                    manifest.logs.append(f"{platform}: no product-level reverse image candidates matched this platform")
+                    save_manifest(manifest, run_dir)
             if platform == "poizon_visual" and poizon_visual_hints:
                 platform_queries = [*poizon_visual_hints, *platform_queries]
             if platform == "poizon_visual" and poizon_image_search:
@@ -954,7 +1043,7 @@ async def download_and_process_one(
         candidate.status_labels.append(f"visual_score_{visual_score}")
         candidate.status_labels.append(f"profile_score_{profile_score}")
         candidate.status_labels.append(f"feature_score_{feature_score}")
-        if has_non_product_title(candidate):
+        if "image_reverse_product_candidate" not in candidate.status_labels and has_non_product_title(candidate):
             candidate.status_labels.append("visual_mismatch")
             manifest.logs.append(f"{candidate.platform}: rejected non-product title {candidate.title}")
             return False

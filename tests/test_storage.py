@@ -11,7 +11,9 @@ from shoe_image_sourcing.crawler import (
     download_and_process_candidates,
     ensure_image_first_platforms,
     is_textually_relevant,
+    marketplace_visual_reverse_candidates,
     prune_rejected_candidates,
+    should_accept_candidate_for_manifest,
     should_skip_fallback,
 )
 
@@ -58,6 +60,59 @@ def test_selected_poizon_visual_runs_before_text_platforms(tmp_path):
     ensure_image_first_platforms(manifest, has_reference_image=True)
 
     assert manifest.platforms == ["poizon_visual", "yandex_reverse_image"]
+
+
+def test_marketplace_visual_reverse_candidates_filter_by_product_domain():
+    candidates = [
+        ImageCandidate(
+            id="ozon",
+            platform="yandex_reverse_image",
+            source_page_url="https://www.ozon.ru/product/kedy-123/",
+            image_url="https://ir.ozone.ru/s3/product.jpg",
+            title="Ozon shoe",
+        ),
+        ImageCandidate(
+            id="wb",
+            platform="yandex_reverse_image",
+            source_page_url="https://www.wildberries.ru/catalog/123/detail.aspx",
+            image_url="https://images.wbstatic.net/product.jpg",
+            title="WB shoe",
+        ),
+        ImageCandidate(
+            id="search",
+            platform="yandex_reverse_image",
+            source_page_url="https://www.ozon.ru/search/?text=shoe",
+            image_url="https://ir.ozone.ru/s3/search.jpg",
+            title="Search page",
+        ),
+    ]
+
+    ozon = marketplace_visual_reverse_candidates(candidates, "ozon")
+    wildberries = marketplace_visual_reverse_candidates(candidates, "wildberries")
+
+    assert [candidate.source_page_url for candidate in ozon] == ["https://www.ozon.ru/product/kedy-123/"]
+    assert "image_reverse_product_candidate" in ozon[0].status_labels
+    assert [candidate.source_page_url for candidate in wildberries] == ["https://www.wildberries.ru/catalog/123/detail.aspx"]
+
+
+def test_marketplace_reverse_candidate_accepts_high_visual_mid_profile_match(tmp_path):
+    manifest, _ = create_run(ProductFacts(), ["shoe product"], ["wildberries"], tmp_path)
+    candidate = ImageCandidate(
+        id="wb-visual",
+        platform="wildberries",
+        source_page_url="https://www.wildberries.ru/catalog/1136838209/detail.aspx",
+        image_url="https://images.wbstatic.net/product.webp",
+        status_labels=["image_reverse_product_candidate", "wildberries_visual_reverse_result"],
+    )
+
+    assert should_accept_candidate_for_manifest(
+        candidate,
+        manifest,
+        text_score=0,
+        visual_score=90,
+        profile_score=70,
+        feature_score=12,
+    )
 
 
 def test_image_first_skips_bing_fallback_after_reverse_matches(tmp_path):

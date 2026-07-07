@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from shoe_image_sourcing.adapters.search_pages import build_search_url
+from shoe_image_sourcing.adapters.search_pages import build_search_url, extract_yandex_site_results
 from shoe_image_sourcing.config import DEFAULT_PLATFORMS, OPTIONAL_PLATFORMS, SUPPORTED_IMAGE_TYPES
 from shoe_image_sourcing.models import ProductFacts
 from shoe_image_sourcing.query import enrich_product_facts, generate_queries
@@ -33,6 +33,27 @@ def test_multi_platform_image_search_defaults_are_enabled():
 
 def test_kr_poizon_search_url_is_supported():
     assert build_search_url("kr_poizon", "Asics Gel Kayano").startswith("https://kr.poizon.com/search?keyword=Asics+Gel+Kayano")
+
+
+def test_extract_yandex_site_results_keeps_product_source_page():
+    html = """
+    <li class="CbirSites-Item">
+      <a href="https://ir.ozone.ru/s3/multimedia-1-s/7171795072.jpg">image</a>
+      <div class="CbirSites-ItemTitle">
+        <a href="https://www.ozon.ru/product/kedy-blazer-mid-77-vintage-2761496050/?utm_medium=organic" aria-label="Ozon product title">Title</a>
+      </div>
+    </li>
+    """
+
+    results = extract_yandex_site_results(html, "https://yandex.ru/images/search?rpt=imageview")
+
+    assert results == [
+        {
+            "image_url": "https://ir.ozone.ru/s3/multimedia-1-s/7171795072.jpg",
+            "source_page_url": "https://www.ozon.ru/product/kedy-blazer-mid-77-vintage-2761496050/?utm_medium=organic",
+            "title": "Ozon product title",
+        }
+    ]
 
 
 def test_avif_uploads_are_supported():

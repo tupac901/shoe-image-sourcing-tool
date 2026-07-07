@@ -100,6 +100,10 @@ def extract_image_results(html: str, base_url: str, limit: int = 12) -> list[dic
         bing_results = extract_bing_image_results(html, base_url, limit)
         if bing_results:
             return bing_results
+    if "yandex." in base_url and "/images/search" in base_url:
+        yandex_results = extract_yandex_site_results(html, base_url, limit)
+        if yandex_results:
+            return yandex_results
     return [{"image_url": url, "source_page_url": base_url, "title": ""} for url in extract_image_urls_from_html(html, base_url, limit)]
 
 
@@ -120,6 +124,39 @@ def extract_bing_image_results(html: str, base_url: str, limit: int = 12) -> lis
                 "image_url": image_url,
                 "source_page_url": normalize_image_url(str(item.get("purl") or base_url), base_url),
                 "title": unescape(str(item.get("t") or item.get("desc") or "")),
+            }
+        )
+        if len(results) >= limit:
+            break
+    return results
+
+
+def extract_yandex_site_results(html: str, base_url: str, limit: int = 12) -> list[dict[str, str]]:
+    results: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for match in re.finditer(r'<li class="CbirSites-Item".*?</li>', html, flags=re.IGNORECASE | re.DOTALL):
+        block = match.group(0)
+        links = re.findall(r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>', block, flags=re.IGNORECASE)
+        if len(links) < 2:
+            continue
+        image_url = normalize_image_url(links[0], base_url)
+        source_page_url = normalize_image_url(links[1], base_url)
+        if not image_url or not source_page_url or not is_likely_product_image(image_url):
+            continue
+        title_match = re.search(r'<div class="CbirSites-ItemTitle">.*?(<a[^>]+>)(.*?)</a>', block, flags=re.IGNORECASE | re.DOTALL)
+        title = ""
+        if title_match:
+            aria_match = re.search(r'aria-label=["\']([^"\']+)["\']', title_match.group(1), flags=re.IGNORECASE)
+            title = aria_match.group(1) if aria_match else re.sub(r"<[^>]+>", " ", title_match.group(2))
+        key = (image_url, source_page_url)
+        if key in seen:
+            continue
+        seen.add(key)
+        results.append(
+            {
+                "image_url": image_url,
+                "source_page_url": source_page_url,
+                "title": " ".join(unescape(title).split()),
             }
         )
         if len(results) >= limit:
