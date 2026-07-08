@@ -1,4 +1,5 @@
 import pytest
+import anyio
 from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw
 
@@ -15,6 +16,10 @@ from shoe_image_sourcing.crawler import (
     kr_poizon_product_link_matches_query,
     kr_poizon_queries_from_reverse_candidates,
     marketplace_visual_reverse_candidates,
+    ozon_product_candidates_from_image_hints,
+    ozon_product_link_matches_query,
+    ozon_queries_from_reverse_candidates,
+    extract_duckduckgo_ozon_links,
     prune_rejected_candidates,
     should_accept_candidate_for_manifest,
     should_skip_fallback,
@@ -161,6 +166,73 @@ def test_kr_poizon_product_link_must_match_image_hint_identity():
         "https://kr.poizon.com/product/8300075895566453",
         "Nike Ja 3 Grip Rebound",
     )
+
+
+def test_ozon_queries_from_reverse_candidates_uses_image_hint_titles():
+    candidates = [
+        ImageCandidate(
+            id="hint",
+            platform="yandex_reverse_image",
+            source_page_url="https://poizon.ru/product/1203a161-100team1954",
+            image_url="https://example.com/kayano.webp",
+            title="ASICS GEL-KAYANO 14 Cream Grey running sneakers Ozon",
+        )
+    ]
+
+    queries = ozon_queries_from_reverse_candidates(candidates)
+
+    assert queries
+    assert queries[0] == "ASICS GEL-KAYANO 14 Cream Grey"
+    assert "ASICS GEL-KAYANO 14" in queries
+
+
+def test_extract_duckduckgo_ozon_links_unwraps_product_urls():
+    html = """
+    <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.ozon.ru%2Fproduct%2Fkrossovki-asics-gel-kayano-14-1203a161-100-1234567890%2F&rut=abc">
+      www.ozon.ru/product/krossovki-asics-gel-kayano-14-1203a161-100-1234567890/
+    </a>
+    <a href="https://www.ozon.ru/search/?text=asics">search page</a>
+    """
+
+    assert extract_duckduckgo_ozon_links(html) == [
+        "https://www.ozon.ru/product/krossovki-asics-gel-kayano-14-1203a161-100-1234567890/"
+    ]
+
+
+def test_ozon_product_link_must_match_image_hint_identity():
+    assert ozon_product_link_matches_query(
+        "https://ozon.by/product/krossovki-asics-gel-kayano-14-3052551979/",
+        "ASICS GEL-KAYANO 14 Cream Grey",
+    )
+    assert not ozon_product_link_matches_query(
+        "https://www.ozon.ru/product/zont-polnyy-avtomat-4848307190/",
+        "ASICS GEL-KAYANO 14 Cream Grey",
+    )
+
+
+def test_ozon_product_candidates_from_image_hints_keeps_image_source(monkeypatch):
+    candidates = [
+        ImageCandidate(
+            id="hint",
+            platform="yandex_reverse_image",
+            source_page_url="https://poizon.ru/product/1203a161-100team1954",
+            image_url="https://example.com/kayano.webp",
+            title="ASICS GEL-KAYANO 14 Cream Grey running sneakers",
+        )
+    ]
+
+    async def fake_search(_queries, limit=6, timeout=8):
+        return ["https://www.ozon.ru/product/krossovki-asics-gel-kayano-14-1203a161-100-1234567890/"], ["ok"]
+
+    monkeypatch.setattr("shoe_image_sourcing.crawler.search_ozon_product_links_from_queries", fake_search)
+
+    result, diagnostics = anyio.run(ozon_product_candidates_from_image_hints, candidates)
+
+    assert diagnostics == ["ok"]
+    assert result[0].platform == "ozon"
+    assert result[0].source_page_url == "https://www.ozon.ru/product/krossovki-asics-gel-kayano-14-1203a161-100-1234567890/"
+    assert result[0].image_url == "https://example.com/kayano.webp"
+    assert "ozon_site_search_from_image" in result[0].status_labels
 
 
 def test_image_first_skips_bing_fallback_after_reverse_matches(tmp_path):

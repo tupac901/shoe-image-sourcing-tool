@@ -58,6 +58,7 @@ MARKETPLACE_PRODUCT_URL_MARKERS = {
     "ozon": ("ozon.ru/product/", "ozon.by/product/"),
 }
 KR_POIZON_SITE_SEARCH_URL = "https://html.duckduckgo.com/html/?q={query}"
+DUCKDUCKGO_HTML_SEARCH_URL = "https://html.duckduckgo.com/html/?q={query}"
 KR_POIZON_QUERY_STOP_WORDS = {
     "buy",
     "price",
@@ -757,6 +758,195 @@ def kr_poizon_product_link_matches_query(product_link: str, query: str) -> bool:
     return len(overlap) >= required
 
 
+def extract_duckduckgo_ozon_links(html_text: str, limit: int = 6) -> list[str]:
+    links: list[str] = []
+    seen: set[str] = set()
+    text = html.unescape(html_text)
+    for match in re.finditer(r'href=["\']([^"\']+)["\']', text, flags=re.IGNORECASE):
+        href = html.unescape(match.group(1))
+        if "uddg=" in href:
+            params = parse_qs(urlparse(href).query)
+            href = params.get("uddg", [href])[0]
+        href = unquote(href)
+        if href.startswith("//duckduckgo.com/l/?"):
+            params = parse_qs(urlparse("https:" + href).query)
+            href = params.get("uddg", [href])[0]
+            href = unquote(href)
+        lowered = href.lower()
+        if not any(marker in lowered for marker in MARKETPLACE_PRODUCT_URL_MARKERS["ozon"]):
+            continue
+        href = href.split("&rut=", 1)[0]
+        if href in seen:
+            continue
+        seen.add(href)
+        links.append(href)
+        if len(links) >= limit:
+            break
+    return links
+
+
+def ozon_queries_from_reverse_candidates(candidates: list[ImageCandidate], limit: int = 8) -> list[str]:
+    queries: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        for raw in (candidate.title, candidate.source_page_url):
+            query = clean_marketplace_query(raw or "")
+            if not query:
+                continue
+            query = re.sub(
+                r"\b(ozon|купить|цена|доставка|россии|москве|интернет|магазине|кроссовки|running|sneakers|shoe|shoes)\b",
+                " ",
+                query,
+                flags=re.IGNORECASE,
+            )
+            query = " ".join(query.split())
+            if len(query) < 6:
+                continue
+            for variant in ozon_query_variants(query):
+                normalized = variant.lower()
+                if normalized in seen:
+                    continue
+                seen.add(normalized)
+                queries.append(variant)
+                if len(queries) >= limit:
+                    return queries
+            break
+    return queries
+
+
+def ozon_query_variants(query: str) -> list[str]:
+    tokens = re.findall(r"[A-Za-z0-9][A-Za-z0-9'-]*", query)
+    if not tokens:
+        return [query]
+    lower_tokens = [token.lower() for token in tokens]
+    color_words = {"cream", "grey", "gray", "white", "black", "red", "blue", "green", "pink", "brown", "silver", "gold"}
+    variants = [" ".join(tokens)]
+    identity_tokens = [token for token, lowered in zip(tokens, lower_tokens) if lowered not in color_words]
+    if identity_tokens and identity_tokens != tokens:
+        variants.append(" ".join(identity_tokens))
+    brand_index = next((index for index, token in enumerate(lower_tokens) if token in VISUAL_HINT_BRAND_TOKENS), None)
+    if brand_index is not None:
+        brand_first = [tokens[brand_index], *[token for index, token in enumerate(tokens) if index != brand_index and lower_tokens[index] not in color_words]]
+        variants.append(" ".join(brand_first[:6]))
+    compact: list[str] = []
+    seen: set[str] = set()
+    for variant in variants:
+        variant = " ".join(variant.split())
+        if not variant or variant.lower() in seen:
+            continue
+        seen.add(variant.lower())
+        compact.append(variant)
+    return compact
+
+
+def ozon_identity_tokens(query: str) -> set[str]:
+    stop_words = {
+        "cream",
+        "grey",
+        "gray",
+        "white",
+        "black",
+        "red",
+        "blue",
+        "green",
+        "pink",
+        "brown",
+        "silver",
+        "gold",
+        "running",
+        "sneakers",
+        "shoe",
+        "shoes",
+    }
+    return {
+        token.lower()
+        for token in re.findall(r"[A-Za-z0-9]+", query)
+        if (len(token) >= 2 or token.isdigit()) and token.lower() not in stop_words
+    }
+
+
+def ozon_product_link_matches_query(product_link: str, query: str) -> bool:
+    path = unquote(urlparse(product_link).path).lower()
+    slug_tokens = set(re.findall(r"[a-z0-9]+", path))
+    identity = ozon_identity_tokens(query)
+    if not slug_tokens or not identity:
+        return False
+    overlap = identity & slug_tokens
+    required = 2 if len(identity) >= 2 else 1
+    return len(overlap) >= required
+
+
+async def search_ozon_product_links_from_queries(
+    queries: list[str],
+    limit: int = 6,
+    timeout: float = 8,
+) -> tuple[list[str], list[str]]:
+    product_links: list[str] = []
+    seen_links: set[str] = set()
+    diagnostics: list[str] = []
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+        )
+    }
+    async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=timeout) as client:
+        for query in queries:
+            total_raw = 0
+            total_matched = 0
+            for domain in ("ozon.ru", "ozon.by"):
+                search_query = f"site:{domain}/product {query}"
+                response = await client.get(DUCKDUCKGO_HTML_SEARCH_URL.format(query=quote_plus(search_query)))
+                response.raise_for_status()
+                raw_links = extract_duckduckgo_ozon_links(response.text, limit=limit * 3)
+                matched_links = [link for link in raw_links if ozon_product_link_matches_query(link, query)]
+                total_raw += len(raw_links)
+                total_matched += len(matched_links)
+                for link in matched_links:
+                    if link in seen_links:
+                        continue
+                    seen_links.add(link)
+                    product_links.append(link)
+                    if len(product_links) >= limit:
+                        diagnostics.append(f"{query} -> {total_matched}/{total_raw}")
+                        return product_links, diagnostics
+            diagnostics.append(f"{query} -> {total_matched}/{total_raw}")
+    return product_links, diagnostics
+
+
+async def ozon_product_candidates_from_image_hints(
+    candidates: list[ImageCandidate],
+    limit: int = 6,
+    timeout: float = 8,
+) -> tuple[list[ImageCandidate], list[str]]:
+    queries = ozon_queries_from_reverse_candidates(candidates)
+    if not queries:
+        return [], []
+    product_links, diagnostics = await search_ozon_product_links_from_queries(queries, limit=limit, timeout=timeout)
+    if not product_links:
+        return [], diagnostics
+    image_hints = [candidate for candidate in candidates if candidate.image_url]
+    if not image_hints:
+        return [], diagnostics
+    direct: list[ImageCandidate] = []
+    for index, product_link in enumerate(product_links):
+        source = image_hints[min(index, len(image_hints) - 1)]
+        key = f"ozon:site-search:{product_link}:{source.image_url}"
+        direct.append(
+            ImageCandidate(
+                id=hashlib.sha1(key.encode("utf-8")).hexdigest()[:16],
+                platform="ozon",
+                source_page_url=product_link,
+                image_url=source.image_url,
+                title=source.title or "Ozon visual product match",
+                status_labels=["image_reverse_product_candidate", "ozon_visual_reverse_result", "ozon_site_search_from_image"],
+            )
+        )
+        if len(direct) >= limit:
+            break
+    return direct, diagnostics
+
+
 async def search_kr_poizon_product_links_from_queries(
     queries: list[str],
     limit: int = 6,
@@ -1048,6 +1238,19 @@ async def collect_candidates(manifest: RunManifest, run_dir: Path, limit_per_pla
                             save_manifest(manifest, run_dir)
                     except Exception as exc:
                         manifest.logs.append(f"kr_poizon: site product search failed from image hints: {exc}")
+                        save_manifest(manifest, run_dir)
+                if platform == "ozon" and not direct_marketplace:
+                    try:
+                        direct_marketplace, ozon_diagnostics = await ozon_product_candidates_from_image_hints(
+                            marketplace_reverse_candidates,
+                            limit=limit_per_platform,
+                            timeout=FAST_PLATFORM_TIMEOUT_SECONDS,
+                        )
+                        if ozon_diagnostics:
+                            manifest.logs.append(f"ozon: image-derived site search {ozon_diagnostics}")
+                            save_manifest(manifest, run_dir)
+                    except Exception as exc:
+                        manifest.logs.append(f"ozon: site product search failed from image hints: {exc}")
                         save_manifest(manifest, run_dir)
                 if direct_marketplace:
                     manifest.candidates.extend(direct_marketplace)

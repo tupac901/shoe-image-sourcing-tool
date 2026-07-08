@@ -16,7 +16,7 @@ from .storage import create_run, load_manifest, save_manifest
 
 
 app = FastAPI(title="Shoe Image Sourcing Tool")
-APP_VERSION = "20260708-standalone-html-1"
+APP_VERSION = "20260708-ozon-image-derived-linking-1"
 IMAGE_ONLY_DEFAULT_PLATFORMS = ["poizon_visual", "kr_poizon", "wildberries", "ozon"]
 
 app.add_middleware(
