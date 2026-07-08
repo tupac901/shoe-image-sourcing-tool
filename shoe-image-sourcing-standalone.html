@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>鞋类以图搜图采集台</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, sans-serif; background: #f6f7f8; color: #202124; }
+    .shell { display: grid; grid-template-columns: minmax(380px, 460px) 1fr; min-height: 100vh; }
+    .panel { background: #fff; border-right: 1px solid #ddd; padding: 20px; overflow: auto; }
+    h1 { font-size: 22px; margin: 0 0 18px; }
+    .hint { margin: -6px 0 18px; color: #5f6368; font-size: 13px; line-height: 1.5; }
+    label { display: grid; gap: 6px; margin-bottom: 12px; font-size: 14px; }
+    input { border: 1px solid #ccc; border-radius: 6px; padding: 9px; font-size: 14px; }
+    .image-only-form { display: grid; gap: 14px; }
+    .upload-box { border: 1px solid #dfe3e8; border-radius: 8px; padding: 14px; background: #fff; }
+    .upload-box span { font-weight: 700; }
+    button { width: 100%; border: 0; border-radius: 6px; padding: 11px; background: #111; color: #fff; font-weight: 700; cursor: pointer; }
+    button:disabled { cursor: wait; opacity: 0.65; }
+    .platforms { display: grid; gap: 8px; border: 1px solid #dfe3e8; border-radius: 8px; padding: 12px 14px 14px; margin-bottom: 16px; background: #fff; }
+    .platforms legend { padding: 0 6px; font-size: 13px; font-weight: 700; color: #202124; }
+    .platforms label { display: flex; align-items: center; gap: 8px; margin: 0; }
+    .platforms span { margin-left: auto; border-radius: 999px; background: #eef2ff; color: #263a8b; font-size: 11px; padding: 2px 7px; }
+    .workspace { padding: 20px; }
+    .status { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 14px; margin-bottom: 18px; }
+    pre { white-space: pre-wrap; max-height: 240px; overflow: auto; color: #555; }
+    .summary { margin-top: 8px; color: #3c4043; font-size: 13px; }
+    .notice { margin-top: 12px; border: 2px solid #d93025; border-left-width: 7px; border-radius: 8px; background: #fff4f2; color: #8f1d14; padding: 13px 15px; font-size: 14px; line-height: 1.45; }
+    .notice strong { display: block; font-size: 18px; margin-bottom: 4px; }
+    .notice[hidden] { display: none; }
+    .reverse-links { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .reverse-link { display: inline-flex; align-items: center; border-radius: 6px; background: #111; color: #fff; padding: 6px 9px; text-decoration: none; font-size: 12px; font-weight: 700; }
+    .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+    .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 10px; min-height: 150px; }
+    .card img { width: 100%; aspect-ratio: 3 / 4; object-fit: contain; background: #fafafa; border-radius: 6px; }
+    .image-link { display: block; }
+    .placeholder { display: grid; place-items: center; width: 100%; aspect-ratio: 3 / 4; background: #f1f3f4; color: #5f6368; border-radius: 6px; font-size: 13px; }
+    .meta { font-size: 12px; color: #555; margin-top: 8px; word-break: break-all; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .action { display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; background: #111; color: #fff; font-size: 12px; font-weight: 700; padding: 7px 9px; text-decoration: none; }
+    .source { margin-top: 8px; color: #5f6368; font-size: 12px; }
+    .source a { color: #1a73e8; word-break: break-all; }
+    .tag { display: inline-block; margin-top: 6px; padding: 3px 6px; border-radius: 999px; background: #eef2ff; color: #263a8b; font-size: 12px; }
+    @media (max-width: 860px) {
+      .shell { grid-template-columns: 1fr; }
+      .panel { border-right: 0; border-bottom: 1px solid #ddd; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <aside class="panel">
+      <h1>鞋类以图搜图采集台</h1>
+      <p class="hint">上传一张鞋图，系统只根据图片本身去所选平台查找商品链接和图片，并自动过滤相似款和错款。</p>
+      <form id="run-form" class="image-only-form">
+        <label class="upload-box">
+          <span>产品图片</span>
+          <input name="image" type="file" accept="image/*" required />
+        </label>
+        <fieldset class="platforms">
+          <legend>选择搜图平台</legend>
+          <label><input type="checkbox" name="platforms" value="poizon_visual" checked /> Poizon Visual <span>商品图</span></label>
+          <label><input type="checkbox" name="platforms" value="kr_poizon" checked /> KR Poizon <span>商品链接</span></label>
+          <label><input type="checkbox" name="platforms" value="wildberries" checked /> WB / Wildberries <span>商品链接</span></label>
+          <label><input type="checkbox" name="platforms" value="ozon" checked /> Ozon <span>商品链接</span></label>
+        </fieldset>
+        <button id="submit-button" type="submit">开始搜图</button>
+      </form>
+    </aside>
+    <section class="workspace">
+      <div class="status">
+        <strong id="run-title">等待上传图片</strong>
+        <div id="summary" class="summary"></div>
+        <div id="notice" class="notice" hidden></div>
+        <pre id="logs"></pre>
+      </div>
+      <div id="gallery" class="gallery"></div>
+    </section>
+  </main>
+  <script>
+    const API_BASE = "https://shoe-image-sourcing-tool.onrender.com";
+    const form = document.querySelector("#run-form");
+    const logs = document.querySelector("#logs");
+    const gallery = document.querySelector("#gallery");
+    const runTitle = document.querySelector("#run-title");
+    const summary = document.querySelector("#summary");
+    const submitButton = document.querySelector("#submit-button");
+    const notice = document.querySelector("#notice");
+
+    const hiddenStatusLabels = new Set(["visual_mismatch", "download_failed", "search_page_only", "fetch_skipped_or_blocked"]);
+    const internalStatusPattern = /^(text_score|visual_score|profile_score|feature_score)_/;
+
+    function absoluteUrl(pathOrUrl) {
+      if (!pathOrUrl) return "";
+      if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
+      return `${API_BASE}/${String(pathOrUrl).replace(/^\/+/, "")}`;
+    }
+
+    function isVisibleCandidate(candidate) {
+      const labels = candidate.status_labels || [];
+      const hidden = labels.some((label) => hiddenStatusLabels.has(label));
+      const hasImage = candidate.local_processed_path || candidate.local_thumbnail_path || candidate.local_original_path || candidate.image_url;
+      return !hidden && Boolean(hasImage);
+    }
+
+    function visibleCandidates(run) {
+      return (run.candidates || []).filter(isVisibleCandidate);
+    }
+
+    function displayTags(candidate) {
+      return (candidate.status_labels || [])
+        .filter((tag) => !hiddenStatusLabels.has(tag))
+        .filter((tag) => !internalStatusPattern.test(tag));
+    }
+
+    function reverseSearchMarkup(run) {
+      const links = run.reverse_search_links || [];
+      if (!links.length) return "";
+      return `
+        <div class="reverse-links">
+          <span>以图搜图</span>
+          ${links.map((link) => `<a class="reverse-link" href="${link.url}" target="_blank" rel="noreferrer">${link.label}</a>`).join("")}
+        </div>
+      `;
+    }
+
+    function renderSummary(run) {
+      const candidates = visibleCandidates(run);
+      const withImages = candidates.filter((candidate) => candidate.local_processed_path || candidate.local_thumbnail_path || candidate.local_original_path || candidate.image_url).length;
+      const processed = candidates.filter((candidate) => candidate.local_processed_path).length;
+      const searchOnly = (run.candidates || []).filter((candidate) => (candidate.status_labels || []).includes("search_page_only")).length;
+      const profile = run.visual_profile || {};
+      const profileText = profile.foreground_aspect
+        ? ` | visual: aspect ${profile.foreground_aspect}, coverage ${profile.foreground_coverage}, edge ${profile.edge_density}`
+        : "";
+      summary.innerHTML = `图片 ${withImages} 张，已转 3:4 ${processed} 张，搜索页线索 ${searchOnly} 条${profileText}${reverseSearchMarkup(run)}`;
+
+      if (run.status === "failed") {
+        notice.hidden = false;
+        const lastLog = (run.logs || []).slice().reverse().find((log) => log.includes("failed") || log.includes("失败")) || "请查看下方日志";
+        notice.innerHTML = `<strong>任务失败</strong><span>${lastLog}</span>`;
+      } else if (run.status === "complete" && processed === 0) {
+        notice.hidden = false;
+        notice.innerHTML = `
+          <strong>未找到同款图片</strong>
+          <span>当前没有从上传图片识别到可用的同款图，已过滤相似款和错款。</span>
+        `;
+      } else {
+        notice.hidden = true;
+        notice.textContent = "";
+      }
+    }
+
+    function imageMarkup(candidate) {
+      const imagePath = candidate.local_processed_path || candidate.local_thumbnail_path || candidate.local_original_path;
+      if (imagePath) {
+        const url = absoluteUrl(imagePath);
+        return `<a class="image-link" href="${url}" target="_blank" rel="noreferrer"><img src="${url}" alt=""></a>`;
+      }
+      if (candidate.image_url) {
+        return `<a class="image-link" href="${candidate.image_url}" target="_blank" rel="noreferrer"><img src="${candidate.image_url}" alt="" loading="lazy" referrerpolicy="no-referrer"></a>`;
+      }
+      return '<div class="placeholder">暂未拿到图片</div>';
+    }
+
+    function actionMarkup(candidate) {
+      const processedPath = candidate.local_processed_path ? absoluteUrl(candidate.local_processed_path) : "";
+      const originalPath = candidate.local_original_path ? absoluteUrl(candidate.local_original_path) : candidate.image_url;
+      const processedButton = processedPath
+        ? `<a class="action" href="${processedPath}" target="_blank" rel="noreferrer">打开 3:4 图</a>`
+        : "";
+      const originalButton = originalPath
+        ? `<a class="action" href="${originalPath}" target="_blank" rel="noreferrer">打开原图</a>`
+        : "";
+      return `<div class="actions">${processedButton}${originalButton}</div>`;
+    }
+
+    async function pollRun(runId) {
+      const res = await fetch(`${API_BASE}/api/runs/${runId}`);
+      if (!res.ok) {
+        runTitle.textContent = `任务 ${runId} · failed`;
+        summary.textContent = "任务状态读取失败";
+        notice.hidden = false;
+        const transient = [502, 503, 504].includes(res.status);
+        const title = transient ? "服务临时不可用" : "任务状态丢失";
+        const message = transient
+          ? "Render 正在冷启动、重启或部署中。请等十几秒后重新提交一次。"
+          : "Render 免费实例重启或重新部署后，本次临时任务文件可能已被清空。请重新提交一次。";
+        notice.innerHTML = `<strong>${title}</strong><span>${message}</span>`;
+        logs.textContent = `GET /api/runs/${runId} returned ${res.status}`;
+        gallery.innerHTML = "";
+        submitButton.disabled = false;
+        submitButton.textContent = "开始搜图";
+        return;
+      }
+
+      const run = await res.json();
+      runTitle.textContent = `任务 ${run.run_id} · ${run.status}`;
+      renderSummary(run);
+      logs.textContent = (run.logs || []).join("\n");
+      gallery.innerHTML = "";
+
+      visibleCandidates(run).forEach((candidate) => {
+        const card = document.createElement("article");
+        card.className = "card";
+        const tags = displayTags(candidate).map((tag) => `<span class="tag">${tag}</span>`).join(" ");
+        card.innerHTML = `
+          ${imageMarkup(candidate)}
+          <div class="meta"><strong>${candidate.platform}</strong></div>
+          <div class="meta">${candidate.title || ""}</div>
+          ${actionMarkup(candidate)}
+          <details class="source"><summary>来源</summary><a href="${candidate.source_page_url}" target="_blank" rel="noreferrer">${candidate.source_page_url}</a></details>
+          ${tags}
+        `;
+        gallery.appendChild(card);
+      });
+
+      if (run.status === "running" || run.status === "created") {
+        setTimeout(() => pollRun(runId), 1500);
+      } else {
+        submitButton.disabled = false;
+        submitButton.textContent = "开始搜图";
+      }
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const body = new FormData(form);
+      const selectedPlatforms = Array.from(form.querySelectorAll('input[name="platforms"]:checked'))
+        .map((input) => input.value)
+        .filter(Boolean);
+      body.delete("platforms");
+      body.set("platforms", selectedPlatforms.join(",") || "poizon_visual,kr_poizon,wildberries,ozon");
+
+      runTitle.textContent = "正在上传图片并创建任务...";
+      summary.textContent = "系统会只根据上传图片，在勾选的平台里查找商品链接和同款图。";
+      notice.hidden = true;
+      notice.textContent = "";
+      logs.textContent = "";
+      gallery.innerHTML = "";
+      submitButton.disabled = true;
+      submitButton.textContent = "创建中...";
+
+      try {
+        const res = await fetch(`${API_BASE}/api/runs`, { method: "POST", body });
+        const data = await res.json();
+        if (!res.ok) {
+          runTitle.textContent = "创建失败";
+          logs.textContent = data.detail || "请求失败";
+          submitButton.disabled = false;
+          submitButton.textContent = "开始搜图";
+          return;
+        }
+        runTitle.textContent = `任务 ${data.run_id} · 已创建`;
+        summary.textContent = "任务已进入后台，正在以图搜图。";
+        pollRun(data.run_id);
+      } catch (error) {
+        runTitle.textContent = "网络或服务异常";
+        logs.textContent = String(error);
+        submitButton.disabled = false;
+        submitButton.textContent = "开始搜图";
+      }
+    });
+  </script>
+</body>
+</html>

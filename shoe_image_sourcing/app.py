@@ -4,6 +4,7 @@ from pathlib import Path
 from urllib.parse import quote_plus
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -15,8 +16,16 @@ from .storage import create_run, load_manifest, save_manifest
 
 
 app = FastAPI(title="Shoe Image Sourcing Tool")
-APP_VERSION = "20260707-kr-poizon-safe-linking-1"
+APP_VERSION = "20260708-standalone-html-1"
 IMAGE_ONLY_DEFAULT_PLATFORMS = ["poizon_visual", "kr_poizon", "wildberries", "ozon"]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
 
 STATIC_DIR = Path(__file__).parent / "static"
 if STATIC_DIR.exists():
